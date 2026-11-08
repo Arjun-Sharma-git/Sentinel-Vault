@@ -59,6 +59,19 @@ services:
     ports: ["127.0.0.1:${QDRANT_PORT:-6333}:6333"]
     volumes: [qdrant:/qdrant/storage]
 
+  # Optional: Ollama in a container with AMD ROCm (RX 9070 XT, Linux). Normally Ollama runs on
+  # the host; use this instead with `docker compose --profile rocm up -d` and stop the host one.
+  ollama-rocm:
+    image: ollama/ollama:rocm
+    profiles: [rocm]
+    devices: ["/dev/kfd", "/dev/dri"]
+    group_add: ["video", "render"]
+    environment:
+      OLLAMA_KEEP_ALIVE: 10m
+    ports: ["127.0.0.1:11434:11434"]
+    volumes: [ollama:/root/.ollama]
+
 volumes:
   pgdata:
   qdrant:
+  ollama:

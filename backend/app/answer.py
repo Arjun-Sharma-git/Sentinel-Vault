@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 MARK = "ˆ"
 NO_ANSWER = "NO_ANSWER"
 _CITATION = re.compile(r"\[S(\d+)\]")
+# Refusals small models write in their own words instead of NO_ANSWER, often with a citation
+# attached ("The sources do not mention Project X [S2]"). Matched on the opening only.
+_REFUSAL = re.compile(
+    r"^(the |these )?(provided |given )?(sources?|documents?|passages?|context)\s+(do(es)?|did)\s+not\s+"
+    r"(contain|mention|include|provide|say|cover|discuss)|^(i\s+)?(could not|couldn't|cannot|can't)\s+find\b"
+    r"|^there is no (information|mention)\b",
+    re.IGNORECASE,
+)
 MAX_PASSAGE_CHARS = 1800
 
 SYSTEM_PROMPT = f"""You answer employees' questions using ONLY the numbered sources provided.
@@ -74,6 +82,8 @@ def verify(raw: str, n_sources: int) -> VerifiedAnswer:
     text = raw.replace(MARK, " ").strip()
     if text.strip(" .\n") == NO_ANSWER or (text.startswith(NO_ANSWER) and len(text) < 40):
         return VerifiedAnswer("", [], no_answer=True)
+    if _REFUSAL.match(text):
+        return VerifiedAnswer(_CITATION.sub("", text).strip(), [], no_answer=True, grounded=False)
     cited: list[int] = []
     dropped: list[int] = []
 

@@ -60,6 +60,9 @@ class Settings(BaseSettings):
 
     # ---- Prompt gate (Laya, from Sentinel) --------------------------------------------
     gate_engine: Literal["laya", "heuristic", "off"] = "laya"
+    # PyTorch device for Laya and Docling: cpu (laptop) | rocm (RX 9070 XT, needs the rocm
+    # dependency group) | cuda. Ollama chooses its own GPU independently.
+    torch_device: Literal["cpu", "rocm", "cuda"] = "cpu"
     gate_injection_threshold: float = 0.5
     gate_exfiltration_threshold: float = 0.6
 

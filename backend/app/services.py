@@ -11,9 +11,11 @@ from .answer import OllamaChat
 from .authz import Authz
 from .authz.factory import build_authz
 from .config import Settings
+from .devices import resolve_device
 from .embeddings import Embedder, HashEmbedder, OllamaEmbedder
 from .gate import PromptGate, build_gate
 from .ingest.indexer import Indexer
+from .ingest.parse import set_docling_device
 from .retrieval import Retriever
 from .vectorstore import VectorStore
 
@@ -61,8 +63,15 @@ async def build_services(
     await vectors.ensure_collection(dimensions)
 
     authz = await build_authz(settings, sessions)
+    device = resolve_device(settings.torch_device)  # fails fast if the GPU build is missing
+    if device.requested != "cpu":
+        logger.info("Laya and Docling run on %s", device.name)
+    set_docling_device(device.torch_device)
     gate = build_gate(
-        settings.gate_engine, settings.gate_injection_threshold, settings.gate_exfiltration_threshold
+        settings.gate_engine,
+        settings.gate_injection_threshold,
+        settings.gate_exfiltration_threshold,
+        device.torch_device,
     )
     llm = (
         OllamaChat(

@@ -18,9 +18,9 @@ dependencies = [
     "docling>=2.140",
     "laya>=0.4.28",
     "torch>=2.4",
-    # Pulled in by Docling. Listed directly so it comes from the same CPU index as torch:
-    # uv applies [tool.uv.sources] only to direct dependencies, and a PyPI torchvision built
-    # for another torch fails at import ("operator torchvision::nms does not exist").
+    # Listed directly so the dependency groups below decide which build (CPU or ROCm) is used:
+    # uv applies [tool.uv.sources] only to direct dependencies, and a torchvision built for
+    # another torch fails at import ("operator torchvision::nms does not exist").
     "torchvision>=0.19",
     "pyyaml>=6.0",
 ]
@@ -32,19 +32,99 @@ dev = [
     "hypothesis>=6.100",
     "ruff>=0.6",
 ]
+# ---- PyTorch build (Laya and Docling): exactly one group is installed ----------------------
+#   cpu   (default)  uv sync                                  laptop, any OS
+#   rocm  AMD GPUs   uv sync --no-group cpu --group rocm      RX 9070 XT desktop, Linux, ~9 GB
+# `./run.sh --gpu rocm` runs the right command; TORCH_DEVICE=rocm then uses the GPU.
+cpu = ["torch>=2.4", "torchvision>=0.19"]
+# PyTorch's ROCm wheels depend on AMD's runtime packaged as wheels (one device package per GPU
+# architecture, gfx1201 is the RX 9070 XT) and triton-rocm. uv only takes a package from an
+# explicit index when it is listed in the group, so each one is listed.
+rocm = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "rocm",
+    "rocm-sdk-core",
+    "rocm-sdk-libraries",
+    "rocm-sdk-device-gfx1010",
+    "rocm-sdk-device-gfx1011",
+    "rocm-sdk-device-gfx1012",
+    "rocm-sdk-device-gfx1030",
+    "rocm-sdk-device-gfx1031",
+    "rocm-sdk-device-gfx1032",
+    "rocm-sdk-device-gfx1033",
+    "rocm-sdk-device-gfx1034",
+    "rocm-sdk-device-gfx1035",
+    "rocm-sdk-device-gfx1036",
+    "rocm-sdk-device-gfx1100",
+    "rocm-sdk-device-gfx1101",
+    "rocm-sdk-device-gfx1102",
+    "rocm-sdk-device-gfx1103",
+    "rocm-sdk-device-gfx1150",
+    "rocm-sdk-device-gfx1151",
+    "rocm-sdk-device-gfx1152",
+    "rocm-sdk-device-gfx1153",
+    "rocm-sdk-device-gfx1200",
+    "rocm-sdk-device-gfx1201",
+    "rocm-sdk-device-gfx1250",
+    "rocm-sdk-device-gfx908",
+    "rocm-sdk-device-gfx90a",
+    "rocm-sdk-device-gfx942",
+    "rocm-sdk-device-gfx950",
+    "triton-rocm",
+]
 
 [tool.uv]
-default-groups = ["dev"]
+default-groups = ["dev", "cpu"]
+conflicts = [[{ group = "cpu" }, { group = "rocm" }]]
 
-# CPU-only PyTorch wheels for Docling's layout models and Laya. The ROCm setup from Sentinel
-# (dependency groups `cpu` / `rocm`) can be added here the same way for the RX 9070 XT.
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu" }]
-torchvision = [{ index = "pytorch-cpu" }]
+torch = [
+    { index = "pytorch-cpu", group = "cpu" },
+    { index = "pytorch-rocm", group = "rocm" },
+]
+torchvision = [
+    { index = "pytorch-cpu", group = "cpu" },
+    { index = "pytorch-rocm", group = "rocm" },
+]
+rocm = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-core = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-libraries = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1010 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1011 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1012 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1030 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1031 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1032 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1033 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1034 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1035 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1036 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1100 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1101 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1102 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1103 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1150 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1151 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1152 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1153 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1200 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1201 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx1250 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx908 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx90a = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx942 = [{ index = "pytorch-rocm", group = "rocm" }]
+rocm-sdk-device-gfx950 = [{ index = "pytorch-rocm", group = "rocm" }]
+triton-rocm = [{ index = "pytorch-rocm", group = "rocm" }]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm7.14"
 explicit = true
 
 [tool.pytest.ini_options]

@@ -40,6 +40,8 @@ SUPPORTED_TYPES = PLAIN_TYPES | RICH_TYPES
 MAGIC = {".pdf": b"%PDF-", ".docx": b"PK\x03\x04", ".pptx": b"PK\x03\x04", ".xlsx": b"PK\x03\x04"}
 
 MAX_CSV_ROWS = 2000
+# Torch device for Docling's layout and OCR models (set at startup from TORCH_DEVICE).
+_docling_device = "cpu"
 DOCLING_MAX_PAGES = 500
 
 
@@ -145,13 +147,25 @@ def _csv_sections(text: str) -> list[Section]:
     return [Section("", "\n".join(rows))]
 
 
+def set_docling_device(device: str) -> None:
+    """Choose Docling's torch device ("cpu" or "cuda") before the first rich document is parsed."""
+    global _docling_device
+    _docling_device = device
+    _docling_converter.cache_clear()
+
+
 @lru_cache(maxsize=1)
 def _docling_converter():
+    from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
-    pdf_options = PdfPipelineOptions(do_ocr=True, do_table_structure=True)
+    pdf_options = PdfPipelineOptions(
+        do_ocr=True,
+        do_table_structure=True,
+        accelerator_options=AcceleratorOptions(device=_docling_device),
+    )
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)})
 
 

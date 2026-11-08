@@ -9,6 +9,9 @@ The successor to [Sentinel](https://github.com/Arjun-Sharma-git/Sentinel-LayaAi)
 prompt gate stays in front, and access control moves from a fixed policy to admin-managed folder
 grants in a Zanzibar-style authorization service.
 
+Why each component was chosen (vector database, authorization engine, models, parsing, and how
+leaks are tested) is in the research report: [docs/research.md](docs/research.md).
+
 ```
 backend/   Python 3.12 · uv · FastAPI · SQLAlchemy 2 + Alembic · Postgres 17 · Qdrant 1.20 · OpenFGA 1.22
            Docling (parsing) · Ollama (Qwen3.5 answers, Qwen3-Embedding) · Laya (prompt gate)
@@ -89,10 +92,21 @@ file **moved** to another folder keeps its vectors; only its folder tag changes.
 
 | | Laptop (16 GB RAM, CPU) | Desktop (Ryzen 7 9800X3D, 32 GB, RX 9070 XT 16 GB) |
 |---|---|---|
+| Start with | `./run.sh` | `cp backend/.env.desktop.example backend/.env && ./run.sh --gpu rocm` |
 | Answer model | `qwen3.5:4b`, `LLM_CONTEXT_TOKENS=4096` | `qwen3.5:9b` or `gpt-oss:20b`, `16384` |
-| Ollama | CPU | ROCm (Linux), e.g. `ollama/ollama:rocm` with `/dev/kfd` and `/dev/dri` |
+| Ollama | CPU | ROCm, on the host or `docker compose --profile rocm up -d` |
+| Laya and Docling | CPU PyTorch | ROCm PyTorch, `TORCH_DEVICE=rocm` |
 | Speed | ~40–50 s per answer, mostly the first model load | a few seconds |
-| Indexing | fine for small libraries | do bulk indexing here |
+| Indexing | fine for small libraries | do bulk indexing here (PDF OCR runs on the GPU) |
+
+**On the desktop (Linux).** The RX 9070 XT (gfx1201) is officially supported by ROCm 7.x, so no
+`HSA_OVERRIDE_GFX_VERSION` is needed. You need the amdgpu kernel driver (`/dev/kfd` exists) and
+your user in the `render` and `video` groups. `./run.sh --gpu rocm` installs PyTorch's ROCm 7.14
+build for Laya and Docling (about 9 GB, because the wheels carry libraries for every AMD GPU
+architecture) and refuses to start if the driver is missing. With `TORCH_DEVICE=rocm` in `.env`, a
+plain `./run.sh` stays on the ROCm build. The API checks at startup that PyTorch really sees the GPU
+and stops with instructions otherwise, rather than quietly running on the CPU. Install Ollama from
+ollama.com: its Linux build includes ROCm and picks up the card by itself.
 
 Keep `EMBEDDING_MODEL` identical on both machines; vectors from different models can't be mixed
 (`app.cli reindex --recreate` rebuilds them). On a 16 GB laptop, close heavy apps while asking:
@@ -115,7 +129,7 @@ documents because she is in `leadership` (a test removes her and checks).
 
 ```bash
 docker compose up -d && cd backend
-uv run pytest                    # 53 tests on the real Postgres + OpenFGA (isolated test DB and store)
+uv run pytest                    # 58 tests on the real Postgres + OpenFGA (isolated test DB and store)
 TEST_AUTHZ=sql uv run pytest     # the same suite on the built-in SQL authorization backend
 ```
 

@@ -71,6 +71,13 @@ def test_verify_handles_no_answer_and_uncited_text():
     assert verify(NO_ANSWER, 3).no_answer
     uncited = verify("The provided sources do not contain this.", 3)
     assert uncited.no_answer and not uncited.grounded
+    # a refusal with a citation attached is still a refusal
+    cited_refusal = verify("The provided sources do not contain information about Project Northwind [S2].", 3)
+    assert cited_refusal.no_answer and cited_refusal.cited == []
+    assert verify("I couldn't find that [S1].", 3).no_answer
+    # a real answer that merely mentions a missing detail is still an answer
+    partial = "Interns accrue 1.5 days per month [S1]. The sources do not mention part-timers."
+    assert not verify(partial, 3).no_answer
 
 
 def test_datamark_joins_words():

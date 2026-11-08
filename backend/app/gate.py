@@ -61,6 +61,7 @@ class LayaGate:
     name = "laya"
 
     def __init__(self, checkpoint: str = "english", device: str = "cpu"):
+        """`device` is a torch device ("cpu" or "cuda"; ROCm GPUs also use "cuda")."""
         os.environ.setdefault("HF_HUB_OFFLINE", "1")  # the model must already be cached
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         from laya import Router
@@ -143,11 +144,13 @@ class PromptGate:
         )
 
 
-def build_gate(engine: str, injection_threshold: float, exfil_threshold: float) -> PromptGate:
+def build_gate(
+    engine: str, injection_threshold: float, exfil_threshold: float, torch_device: str = "cpu"
+) -> PromptGate:
     chosen: GateEngine | None = None
     if engine == "laya":
         try:
-            chosen = LayaGate()
+            chosen = LayaGate(device=torch_device)
         except Exception as exc:  # model not downloaded, laya missing, ...
             logger.warning(
                 "Laya unavailable (%s); using the heuristic gate. "
