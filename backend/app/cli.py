@@ -7,6 +7,7 @@ uv run python -m app.cli index              run queued indexing jobs now
 uv run python -m app.cli sync-authz         push all grants to OpenFGA
 uv run python -m app.cli reindex --recreate rebuild every vector (after changing EMBEDDING_MODEL)
 uv run python -m app.cli download-laya      fetch the Laya gate model once (needs internet)
+uv run python -m app.cli download-docling   fetch Docling's PDF models once (the parser runs offline)
 """
 
 from __future__ import annotations
@@ -167,6 +168,29 @@ def download_laya() -> None:
     print("Laya is cached; the gate runs offline from now on.")
 
 
+def download_docling() -> None:
+    """Fetch Docling's PDF models (layout, tables, OCR) into the cache by parsing a blank page.
+
+    The parser normally runs with no network (ingest/sandbox.py), so it can only use models
+    that are already cached.
+    """
+    import tempfile
+    from pathlib import Path
+
+    import pypdfium2
+
+    from .ingest.parse import _parse_rich
+
+    os.environ["HF_HUB_OFFLINE"] = "0"
+    with tempfile.TemporaryDirectory() as tmp:
+        blank = Path(tmp) / "blank.pdf"
+        pdf = pypdfium2.PdfDocument.new()
+        pdf.new_page(612, 792)
+        pdf.save(blank)
+        _parse_rich(blank)
+    print("Docling's models are cached; PDF parsing works offline from now on.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="vault", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -175,14 +199,14 @@ def main() -> None:
     admin = sub.add_parser("create-admin")
     admin.add_argument("email")
     admin.add_argument("name")
-    for name in ("seed-demo", "scan", "index", "sync-authz", "download-laya"):
+    for name in ("seed-demo", "scan", "index", "sync-authz", "download-laya", "download-docling"):
         sub.add_parser(name)
     rebuild = sub.add_parser("reindex")
     rebuild.add_argument("--recreate", action="store_true", help="drop and rebuild the vector collection")
     args = parser.parse_args()
 
-    if args.command == "download-laya":
-        download_laya()
+    if args.command in ("download-laya", "download-docling"):
+        {"download-laya": download_laya, "download-docling": download_docling}[args.command]()
         return
     commands = {
         "create-admin": lambda: create_admin(args.email, args.name),

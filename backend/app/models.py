@@ -1,7 +1,9 @@
 """Database tables. Postgres is the system of record; Qdrant and OpenFGA are derived from it.
 
-Access rules live in `group_members`, `folders.parent_id` and `grants`. They are written
-through to OpenFGA on every change and fully re-synced at startup (authz/sync.py).
+Access rules live in `group_members`, `folders.parent_id` and `grants`. A database trigger
+bumps `authz_state.version` whenever they change, in the same transaction; OpenFGA is synced
+after every change and at startup, and until it has caught up with the current version,
+queries are answered from these tables instead (authz/guard.py).
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Computed,
@@ -185,3 +188,30 @@ class Job(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AuthzState(Base):
+    """A single row tracking whether OpenFGA has caught up with the access tables.
+
+    `version` is incremented by a trigger (migration 0002) on any write to `grants`,
+    `group_members` or `folders`, atomically with that write. `synced_version` is the newest
+    version a completed OpenFGA sync is known to include.
+    """
+
+    __tablename__ = "authz_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger, default=1)
+    synced_version: Mapped[int] = mapped_column(BigInteger, default=0)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LoginThrottle(Base):
+    """Failed sign-in counters, per account ("email:...") and per client address ("ip:...")."""
+
+    __tablename__ = "login_throttle"
+
+    key: Mapped[str] = mapped_column(String(300), primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

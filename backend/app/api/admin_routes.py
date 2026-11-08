@@ -1,11 +1,14 @@
 """Administration: users, groups, folders, grants, indexing and the audit log.
 
 Every change to who-can-see-what is written to Postgres, then synced to the authorization
-backend before the response returns, and recorded in the audit log.
+backend before the response returns, and recorded in the audit log. If that sync fails, the
+change still holds: queries are answered from Postgres until OpenFGA catches up
+(authz/guard.py), so a revocation can never be undone by an OpenFGA outage.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .. import audit
 from ..auth import end_all_sessions, hash_password
+from ..authz.openfga import AuthzUnavailable
 from ..ingest.library import enqueue_index, ensure_folders, safe_join, scan_library
 from ..ingest.worker import drain
 from ..models import AuditEvent, Document, Folder, Grant, Group, GroupMember, Job, User
@@ -34,8 +38,20 @@ from .schemas import (
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_csrf_header)])
 
 
+logger = logging.getLogger(__name__)
+
+
 async def _sync(services: Svc) -> None:
-    await services.authz.sync()
+    """Push a committed change to the authz backend, best effort.
+
+    The change is already committed and already enforced (the guard answers from Postgres
+    while OpenFGA is behind), so a failed push is retried in the background rather than
+    turned into an error that would also skip the audit record.
+    """
+    try:
+        await services.authz.sync()
+    except AuthzUnavailable as exc:
+        logger.warning("authz sync deferred, will retry: %s", exc)
 
 
 # ---- Users ------------------------------------------------------------------------------

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy import delete
@@ -15,7 +14,7 @@ from ..models import Chunk, Document, new_id, utcnow
 from ..vectorstore import VectorStore
 from .chunk import chunk_sections
 from .library import safe_join
-from .parse import parse_file
+from .sandbox import IsolatedParser
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +25,7 @@ class Indexer:
     vectors: VectorStore
     library_dir: Path
     chunk_max_tokens: int = 400
+    parser: IsolatedParser = field(default_factory=IsolatedParser)
 
     async def index(self, db: AsyncSession, document_id: str) -> None:
         document = await db.get(Document, document_id)
@@ -35,7 +35,7 @@ class Indexer:
         await db.commit()
         try:
             path = safe_join(self.library_dir, document.rel_path)
-            parsed = await asyncio.to_thread(parse_file, path)  # Docling is CPU-bound
+            parsed = await self.parser.parse(path)  # out of process, limited (sandbox.py)
             chunks = chunk_sections(parsed.sections, self.chunk_max_tokens)
             vectors = await self.embedder.embed_documents([c.for_embedding(parsed.title) for c in chunks])
         except Exception as exc:

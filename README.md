@@ -18,6 +18,77 @@ backend/   Python 3.12 · uv · FastAPI · SQLAlchemy 2 + Alembic · Postgres 17
 frontend/  React 19 · Vite · TanStack Router / Query / Table · Tailwind v4
 ```
 
+## Architecture
+
+Every component runs on one machine. The data services bind to `127.0.0.1` only. Postgres is
+the source of truth for who may see what. OpenFGA holds a synced copy of those grants as
+relationship tuples and answers the permission checks at query time.
+
+```mermaid
+flowchart TB
+  user(["Browser"])
+
+  subgraph ui["frontend · React 19 + Vite (:5174)"]
+    pages["Ask · Library · Admin pages<br/>TanStack Router / Query"]
+  end
+
+  subgraph api["backend · FastAPI (:8010)"]
+    direction TB
+    routes["Routes<br/>auth · ask (SSE) · library · admin"]
+    sessions["Sessions + CSRF<br/>HttpOnly cookie, Argon2id"]
+    pipeline["Question pipeline<br/>gate → access → retrieve → generate → verify → audit"]
+    gate["Laya gate<br/>(PyTorch, in-process)"]
+    retriever["Retriever<br/>dense + full-text, RRF, re-check"]
+    authz["Authz layer<br/>OpenFGA client · SQL oracle"]
+    worker["Indexing worker<br/>scan · Docling · chunk · embed"]
+  end
+
+  subgraph data["docker compose (127.0.0.1 only)"]
+    pg[("Postgres 17<br/>users · groups · grants<br/>documents · chunks + tsvector<br/>sessions · jobs · audit")]
+    fga[("OpenFGA 1.22<br/>relationship tuples<br/>user · group · folder")]
+    qd[("Qdrant 1.20<br/>chunk vectors<br/>folder_id payload index")]
+  end
+
+  subgraph host["host"]
+    ollama["Ollama<br/>qwen3.5 (answers)<br/>qwen3-embedding (vectors)"]
+    lib[["data/library/<br/>engineering/ hr/ financials/ …"]]
+  end
+
+  user -->|"HTTPS / same origin"| pages
+  pages -->|"/api via Vite proxy<br/>cookie + X-Vault-Request"| routes
+  routes --> sessions --> pg
+  routes --> pipeline
+  pipeline --> gate
+  pipeline --> retriever
+  retriever -->|"viewable folders (fresh)<br/>batch re-check"| authz
+  authz -->|"list-objects · batch-check"| fga
+  retriever -->|"vector search<br/>filter folder_id ∈ allowed"| qd
+  retriever -->|"full-text search<br/>WHERE folder_id IN allowed"| pg
+  retriever -->|"embed question"| ollama
+  pipeline -->|"datamarked sources<br/>stream answer"| ollama
+  pipeline -->|"audit row"| pg
+  routes -->|"admin: grants, groups, users"| pg
+  pg -.->|"sync tuples after each change<br/>+ full reconcile at startup"| fga
+  worker -->|"read files"| lib
+  worker -->|"chunks, status, jobs (SKIP LOCKED)"| pg
+  worker -->|"vectors"| qd
+  worker -->|"embed chunks"| ollama
+  routes -->|"uploads (editors)"| lib
+
+  classDef store fill:#f0e5d1,stroke:#a27a45,color:#1b1814
+  classDef svc fill:#fbf8f2,stroke:#665e53,color:#1b1814
+  class pg,fga,qd store
+  class ollama,lib svc
+```
+
+| Component | Owns | Notes |
+|---|---|---|
+| Postgres | users, groups, folders, grants, documents, chunks (with `tsvector`), sessions, jobs, audit | Source of truth. OpenFGA also keeps its own store in a separate database on this server. |
+| OpenFGA | `user` / `group#member` / `folder` tuples, inheritance through `parent` | Queried with `HIGHER_CONSISTENCY`. `AUTHZ_BACKEND=sql` runs the same rules from Postgres. |
+| Qdrant | one point per chunk, `folder_id` payload indexed as tenant key | The filter is applied during HNSW search, not after it. |
+| Ollama | answer model + embedding model | Runs on the host, so it can use ROCm on the GPU directly. |
+| Worker | scan → parse (Docling) → chunk → embed → index | Runs inside the API process by default (`RUN_WORKER`). |
+
 ## How a question is answered
 
 ```mermaid
@@ -78,6 +149,10 @@ cd ../frontend && pnpm install && pnpm dev # http://localhost:5174
 The Laya gate model is shared with Sentinel's Hugging Face cache; if it isn't downloaded, the gate
 falls back to a keyword heuristic until you run `uv run python -m app.cli download-laya`.
 
+Files are parsed in a sandboxed process with no network, so Docling's PDF models must be cached
+once: `uv run python -m app.cli download-docling`. Markdown, text, CSV, JSON, HTML and Office files
+don't need them.
+
 ### Your own documents
 
 Put folders under `data/library/` (or point `LIBRARY_DIR` at a share). Every directory becomes an
@@ -129,7 +204,7 @@ documents because she is in `leadership` (a test removes her and checks).
 
 ```bash
 docker compose up -d && cd backend
-uv run pytest                    # 58 tests on the real Postgres + OpenFGA (isolated test DB and store)
+uv run pytest                    # 72 tests on the real Postgres + OpenFGA (isolated test DB and store)
 TEST_AUTHZ=sql uv run pytest     # the same suite on the built-in SQL authorization backend
 ```
 
@@ -142,18 +217,37 @@ TEST_AUTHZ=sql uv run pytest     # the same suite on the built-in SQL authorizat
   plain-Python rules (`app/authz/rules.py`) for every user.
 - **API security.** Sessions, CSRF header, admin-only routes, 404-not-403 for hidden objects,
   upload checks (signature, type, path traversal), deactivation signs out immediately.
+- **Failure modes.** A revocation made while OpenFGA's sync is failing must still hold on the next
+  question; accounts and client addresses lock after repeated failed sign-ins (unknown emails
+  too); the parser sandbox kills hung parsers, caps memory, refuses zip bombs, gets no secrets
+  and has no network.
 - The suite was checked against a sabotaged filter (search all folders, skip the re-check): the
-  canary, revocation and membership tests fail as they should.
+  canary, revocation and membership tests fail as they should. Disabling the OpenFGA freshness
+  check makes the outage-revocation test fail the same way.
 
 ## Security notes
 
 - Sessions are server-side: an HttpOnly, SameSite=Strict cookie holds a random token; only its
   hash is stored. Idle and absolute timeouts; deactivation or a password change ends all sessions.
 - Passwords use Argon2id (OWASP parameters). Login failures don't reveal whether an email exists.
+- Sign-in throttling (`app/throttle.py`): 5 failures in 15 minutes lock an account for 15 minutes,
+  and 30 lock a client address, counted in Postgres so every API instance shares them. Locked
+  attempts get `429` with `Retry-After` and are refused before the password is checked. Behind a
+  reverse proxy, set `TRUST_PROXY_HEADERS=true` so the real client address is used.
+- OpenFGA can lag but never overrule Postgres (`app/authz/guard.py`). A trigger bumps
+  `authz_state.version` in the same transaction as any change to grants, memberships or folders.
+  Until a sync has caught up with that version, queries are answered from Postgres by the SQL
+  rules, and the sync is retried every 5 seconds. A revocation can't be undone by an OpenFGA outage.
 - State-changing requests need the `X-Vault-Request` header (CSRF). CORS allows only the UI origin.
 - `APP_ENV=production` refuses the development passwords and API keys and requires HTTPS cookies.
-- Uploads are streamed with a size limit, checked by extension and file signature, stored under a
-  sanitized basename, and parsed by Docling with page limits.
+- Uploads are streamed with a size limit, checked by extension and file signature, and stored under
+  a sanitized basename.
+- Every file is parsed out of process (`app/ingest/sandbox.py`) with a wall-clock timeout (the
+  process group is killed), address-space, CPU and write limits, a scrubbed environment (no
+  database URL or keys), and no network via a Linux user + network namespace. Office files are
+  checked for zip bombs (entry count, expanded size, compression ratio) before anything opens them.
+  The sandbox doesn't restrict file reads. For that, run the worker as its own container with
+  only the library mounted.
 - Questions and document reads are audited in Postgres (admin-only), never in process logs.
 
 ## Layout
@@ -176,13 +270,52 @@ backend/tests/                permissions, API security, ingestion, oracle, unit
 frontend/src/routes/          Chat, Library, Login, admin/{Access, People, Indexing, Audit}
 ```
 
-## Limits and next steps
+## Where it can be better
 
-- OpenFGA's `ListObjects` is fine for hundreds of folders; at many thousands, keep the per-query
-  folder set small (e.g. cache per request) or move to SpiceDB's materialized lookups.
-- Single-node. For several API instances, run the indexer as its own worker process
-  (`RUN_WORKER=false` on the API) — the job queue already uses `SKIP LOCKED`.
-- No reranker yet (Qwen3-Reranker-0.6B is the planned addition), and no OIDC: add an identity
-  provider (Keycloak, Authentik) behind the existing session layer for SSO.
-- The answer quality of 4B models on long or tabular documents is the main open risk; the
-  desktop profile (9B–20B on the RX 9070 XT) is the intended setup for daily use.
+These are known weaknesses, checked against the current code and ordered by risk.
+
+### Done: security
+
+The three P0 items are fixed. Grant changes can no longer fail open: queries use the Postgres
+rules while OpenFGA lags. Sign-in is throttled per account and per address. Files are parsed in
+a limited, network-less child process. See Security notes. What's left of the third item is
+filesystem isolation, which needs a separate worker container.
+
+### P1: answer quality
+
+4. **No reranker.** RRF output goes straight to the model. Adding Qwen3-Reranker-0.6B over the
+   top 30 candidates is the cheapest quality gain available.
+5. **No evaluation set.** Leak tests are thorough, but nothing measures retrieval recall@k,
+   faithfulness or the NO_ANSWER rate. Fix: a small golden Q&A set per folder, scored in CI
+   (DeepEval or Ragas), plus a promptfoo red-team suite against the gate.
+6. **Keyword search lives in Postgres.** This works, but Qdrant 1.20's native BM25 sparse
+   vectors would put both retrieval legs in one filtered query and one index.
+7. **The model's real context is small** (4,096 tokens on the laptop profile). Long tables lose
+   rows. Table-aware chunking (keeping header rows with every chunk) would help.
+
+### P2: operations and scale
+
+8. **Re-indexing a document is not atomic.** The indexer deletes vectors, deletes chunks, inserts
+   new chunks, then upserts vectors. A crash in the middle leaves the document without vectors.
+   Fix: write the new version under a new id, then swap it in and delete the old one.
+9. **Every authenticated request writes to the sessions table** (`last_seen_at`). Only update it
+   when it is more than a minute old.
+10. **Every grant change triggers a full OpenFGA diff.** Write only the changed tuples, and keep
+    the full reconcile as a periodic job.
+11. **`SqlAuthz` loads a full snapshot per call.** It is fine as an oracle, but slow as a
+    production backend. Cache it per request, or use a recursive SQL query.
+12. **No observability.** Add OpenTelemetry traces per pipeline step (gate, authz, retrieval,
+    LLM) and metrics for latency, block rate and NO_ANSWER rate.
+13. **The audit log can be edited.** Anyone with database access can change rows. Fix: append-only
+    permissions, a hash chain across rows, and a retention policy.
+14. **No SSO or MFA.** Put OIDC (Keycloak or Authentik) in front of the existing session layer,
+    and map IdP groups to vault groups.
+15. **One Ollama, no queueing.** `/api/ask` has no per-user rate limit or concurrency cap, so one
+    user can monopolise the GPU.
+16. **Smaller gaps:** chat history is not saved; there is no Playwright end-to-end suite; Laya loads
+    in every API process (memory); OpenFGA `ListObjects` gets slow past many thousands of folders
+    (SpiceDB's materialized lookups are the escape hatch).
+
+The Laya gate is a filter, not a boundary. Its measured prompt-injection miss rate is high (see
+`docs/research.md`). What keeps documents safe is that retrieval never sees a folder the user
+can't view.

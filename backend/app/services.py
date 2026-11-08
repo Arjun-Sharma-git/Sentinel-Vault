@@ -15,7 +15,7 @@ from .devices import resolve_device
 from .embeddings import Embedder, HashEmbedder, OllamaEmbedder
 from .gate import PromptGate, build_gate
 from .ingest.indexer import Indexer
-from .ingest.parse import set_docling_device
+from .ingest.sandbox import IsolatedParser, ParseLimits
 from .retrieval import Retriever
 from .vectorstore import VectorStore
 
@@ -66,7 +66,6 @@ async def build_services(
     device = resolve_device(settings.torch_device)  # fails fast if the GPU build is missing
     if device.requested != "cpu":
         logger.info("Laya and Docling run on %s", device.name)
-    set_docling_device(device.torch_device)
     gate = build_gate(
         settings.gate_engine,
         settings.gate_injection_threshold,
@@ -93,5 +92,8 @@ async def build_services(
         )
 
     retriever = Retriever(authz, vectors, embedder, settings.retrieval_candidates, settings.retrieval_top_k)
-    indexer = Indexer(embedder, vectors, settings.library_dir, settings.chunk_max_tokens)
+    parser = IsolatedParser(
+        ParseLimits.from_settings(settings), device.torch_device, settings.parse_network_isolation
+    )
+    indexer = Indexer(embedder, vectors, settings.library_dir, settings.chunk_max_tokens, parser)
     return Services(settings, sessions, authz, vectors, embedder, gate, llm, retriever, indexer)

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     openfga_url: str = "http://127.0.0.1:8081"
     openfga_api_key: str = "vault-dev-openfga-key"
     openfga_store_name: str = "sentinel-vault"
+    # While OpenFGA lags behind Postgres (a failed sync), queries use the SQL rules and the
+    # sync is retried this often.
+    authz_sync_retry_seconds: float = 5.0
 
     # ---- Vector store -----------------------------------------------------------------
     qdrant_url: str = "http://127.0.0.1:6333"
@@ -78,8 +81,34 @@ class Settings(BaseSettings):
     session_idle_minutes: int = 60
     cookie_secure: bool = False  # True behind HTTPS
 
+    # ---- Sign-in throttling -------------------------------------------------------------
+    # After this many failed sign-ins within the window, the account is locked for the
+    # lockout period (attempts are refused without checking the password).
+    login_max_failures: int = 5
+    # The same, per client address, to slow password spraying across many accounts.
+    login_ip_max_failures: int = 30
+    login_window_minutes: int = 15
+    login_lockout_minutes: int = 15
+    # Take the client address from X-Forwarded-For. Only enable behind a reverse proxy that
+    # sets it (otherwise clients could forge it). The Vite dev proxy sets it.
+    trust_proxy_headers: bool = False
+
     # ---- Background indexing ----------------------------------------------------------
     run_worker: bool = True  # index documents inside the API process
+
+    # ---- Parsing untrusted files ----------------------------------------------------------
+    # Every file is parsed in a separate, killable process with these limits (app/ingest/sandbox.py).
+    parse_timeout_seconds: float = 300.0
+    parse_memory_mb: int = 6144  # address-space limit for the parser process; 0 = none
+    parse_max_file_mb: int = 200
+    parse_max_pages: int = 500
+    # Office files are zip archives: refuse zip bombs before opening them.
+    zip_max_uncompressed_mb: int = 500
+    zip_max_ratio: int = 100
+    zip_max_entries: int = 10000
+    # Run the parser with no network (a Linux network namespace via `unshare`). auto: use it
+    # when the system allows; on: refuse to parse without it; off: never.
+    parse_network_isolation: Literal["auto", "on", "off"] = "auto"
     scan_on_startup: bool = True
 
     @model_validator(mode="after")

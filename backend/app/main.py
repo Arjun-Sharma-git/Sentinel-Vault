@@ -15,6 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 
 from .api import admin_routes, auth_routes, chat_routes, library_routes
+from .authz.guard import FreshnessGuard
 from .authz.openfga import AuthzUnavailable
 from .config import get_settings
 from .db import dispose, session_factory
@@ -56,6 +57,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     worker = (
         asyncio.create_task(work_forever(sessions, services.indexer, stop)) if settings.run_worker else None
     )
+    syncer = (
+        asyncio.create_task(services.authz.keep_synced(stop))
+        if isinstance(services.authz, FreshnessGuard)
+        else None
+    )
     logger.info(
         "ready: authz=%s gate=%s llm=%s embeddings=%s",
         services.authz.name,
@@ -65,8 +71,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     yield
     stop.set()
-    if worker:
-        await worker
+    for task in (worker, syncer):
+        if task:
+            await task
     await services.close()
     await dispose()
 

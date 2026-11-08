@@ -81,7 +81,8 @@ def client():
         test_client.portal.call(drain, services.sessions, services.indexer)
         yield test_client
         if services.authz.name == "openfga":  # remove the throwaway store
-            test_client.portal.call(services.authz._http.delete, f"/stores/{services.authz.store_id}")
+            openfga = services.authz.primary
+            test_client.portal.call(openfga._http.delete, f"/stores/{openfga.store_id}")
 
 
 @pytest.fixture(scope="session")

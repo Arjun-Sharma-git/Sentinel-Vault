@@ -28,8 +28,10 @@ def _backend_view(api, user_id: str) -> tuple[set[str], set[str]]:
 
 
 def test_backend_matches_oracle_under_random_changes(api):
-    if api.client.app.state.services.authz.name != "openfga":
+    authz = api.client.app.state.services.authz
+    if authz.name != "openfga":
         pytest.skip("the SQL backend *is* the oracle")
+    fallbacks = authz.fallback_answers  # must stay put: OpenFGA itself has to answer
     rng = random.Random(7)
     users = {name: api.user_id(name) for name in PERSONAS}
     groups = api.get("alice", "/api/admin/groups").json()
@@ -66,6 +68,7 @@ def test_backend_matches_oracle_under_random_changes(api):
                 viewer, editor = _backend_view(api, user_id)
                 assert viewer == oracle.folders_for(user_id, "viewer"), name
                 assert editor == oracle.folders_for(user_id, "editor"), name
+        assert authz.fallback_answers == fallbacks, "the SQL fallback answered, not OpenFGA"
     finally:
         for grant_id in created:
             api.delete("alice", f"/api/admin/grants/{grant_id}")
