@@ -1,0 +1,123 @@
+/* Design system ported from arjun-sharma-git.github.io: warm paper palette, Inter + Instrument Serif.
+   Fonts are bundled from npm (@fontsource), so the UI makes no external requests. */
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource/instrument-serif/latin-400.css';
+@import '@fontsource/instrument-serif/latin-400-italic.css';
+@import 'tailwindcss';
+
+@theme {
+  --color-cream: #f5efe4;
+  --color-paper: #fbf8f2;
+  --color-ink: #1b1814;
+  --color-muted: #665e53;
+  --color-gold: #a27a45;
+  --color-gold-deep: #7d5a2c;
+  --color-gold-soft: #f0e5d1;
+  --color-line: #e2d9c8;
+
+  /* status colours, tuned to sit on paper without shouting */
+  --color-sage: #4c6a37;
+  --color-sage-soft: #e7ecdc;
+  --color-brick: #a3412b;
+  --color-brick-soft: #f5e3db;
+  --color-slate: #3d5a70;
+  --color-slate-soft: #e3e9ee;
+
+  --font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --animate-fade-in: fade-in 0.35s ease-out both;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+:root { color-scheme: light; }
+
+html { scroll-padding-top: 6rem; }
+
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-gold);
+  color: var(--color-paper);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(to right, rgb(27 24 20 / 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(27 24 20 / 0.05) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* Page backdrop: warm light drifting under the content, plus paper grain. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.backdrop-glow {
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  will-change: transform;
+}
+.backdrop-glow-a {
+  top: -30vmax;
+  left: -20vmax;
+  background: radial-gradient(closest-side, rgb(214 168 102 / 0.32), transparent);
+  animation: drift-a 38s ease-in-out infinite alternate;
+}
+.backdrop-glow-b {
+  right: -25vmax;
+  top: 20vh;
+  background: radial-gradient(closest-side, rgb(201 140 92 / 0.2), transparent);
+  animation: drift-b 46s ease-in-out infinite alternate;
+}
+.backdrop-glow-c {
+  bottom: -35vmax;
+  left: 15vw;
+  background: radial-gradient(closest-side, rgb(170 150 110 / 0.22), transparent);
+  animation: drift-c 52s ease-in-out infinite alternate;
+}
+.backdrop-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.45;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .42 0 0 0 0 .36 0 0 0 0 .28 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+@keyframes drift-a { to { transform: translate3d(18vw, 14vh, 0) scale(1.1); } }
+@keyframes drift-b { to { transform: translate3d(-22vw, 18vh, 0) scale(0.92); } }
+@keyframes drift-c { to { transform: translate3d(14vw, -20vh, 0) scale(1.08); } }
+
+/* The pipeline chips light up one after another while a request runs. */
+@keyframes step-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(162 122 69 / 0.45); }
+  50% { box-shadow: 0 0 0 6px rgb(162 122 69 / 0); }
+}
+.step-running { animation: step-pulse 1.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop-glow, .step-running { animation: none; }
+  .animate-fade-in { animation: none; }
+}
+
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+.scrollbar-thin-dark { scrollbar-width: thin; scrollbar-color: rgb(251 248 242 / 0.15) transparent; }

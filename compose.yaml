@@ -1,0 +1,64 @@
+# Sentinel Vault services. Everything binds to 127.0.0.1 only.
+#   docker compose up -d          Postgres, OpenFGA, Qdrant
+# Ollama runs on the host (it needs the GPU); see README for the ROCm container alternative.
+
+name: sentinel-vault
+
+x-healthcheck: &healthcheck
+  interval: 3s
+  timeout: 3s
+  retries: 40
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: vault
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vault-dev-password}
+      POSTGRES_DB: vault
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5433}:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres-init.sql:/docker-entrypoint-initdb.d/10-openfga.sql:ro
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "pg_isready -U vault -d vault"]
+
+  # OpenFGA keeps its tuples in its own database inside the same Postgres.
+  openfga-migrate:
+    image: openfga/openfga:v1.22.0
+    command: migrate
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://vault:${POSTGRES_PASSWORD:-vault-dev-password}@postgres:5432/openfga?sslmode=disable
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  openfga:
+    image: openfga/openfga:v1.22.0
+    command: run
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://vault:${POSTGRES_PASSWORD:-vault-dev-password}@postgres:5432/openfga?sslmode=disable
+      OPENFGA_AUTHN_METHOD: preshared
+      OPENFGA_AUTHN_PRESHARED_KEYS: ${OPENFGA_API_KEY:-vault-dev-openfga-key}
+      OPENFGA_PLAYGROUND_ENABLED: "false"
+      OPENFGA_LOG_FORMAT: json
+    ports: ["127.0.0.1:${OPENFGA_PORT:-8081}:8080"]
+    depends_on:
+      openfga-migrate: { condition: service_completed_successfully }
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "grpc_health_probe", "-addr=:8081"]
+
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-vault-dev-qdrant-key}
+      QDRANT__TELEMETRY_DISABLED: "true"
+    ports: ["127.0.0.1:${QDRANT_PORT:-6333}:6333"]
+    volumes: [qdrant:/qdrant/storage]
+
+volumes:
+  pgdata:
+  qdrant:

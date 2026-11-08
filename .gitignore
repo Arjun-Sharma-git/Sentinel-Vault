@@ -1,0 +1,12 @@
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+node_modules/
+dist/
+.tanstack/
+.env
+*.log
+# half-written uploads
+data/library/**/.upload-*

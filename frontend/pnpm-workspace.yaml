@@ -1,0 +1,4 @@
+# Supply-chain policy, enforced the same way by every pnpm version (10.16+):
+# never install a package version published less than 24 hours ago. Freshly published
+# versions are where compromised releases usually live until they're caught and pulled.
+minimumReleaseAge: 1440

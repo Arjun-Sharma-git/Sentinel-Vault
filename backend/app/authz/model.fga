@@ -1,0 +1,20 @@
+model
+  schema 1.1
+
+# Sentinel Vault authorization model (OpenFGA DSL). The JSON in model.json is what the API
+# loads; keep the two in step. Users reach folders directly or through group membership,
+# and access to a folder flows down to its subfolders.
+
+type user
+
+type group
+  relations
+    define member: [user]
+
+type folder
+  relations
+    define parent: [folder]
+    # may upload and manage documents in the folder (and its subfolders)
+    define editor: [user, group#member] or editor from parent
+    # may search and read the folder's documents (and its subfolders')
+    define viewer: [user, group#member] or editor or viewer from parent
