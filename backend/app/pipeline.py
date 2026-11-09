@@ -70,8 +70,9 @@ def citation(n: int, passage: Passage) -> dict[str, Any]:
 
 
 async def answer_question(
-    services: Services, db: AsyncSession, user: User, question: str
+    services: Services, db: AsyncSession, user: User, question: str, within: set[str] | None = None
 ) -> AsyncIterator[Event]:
+    """`within`: folder ids to search (the folders of the knowledge sources the user picked)."""
     request_id = uuid.uuid4().hex[:12]
     started = time.perf_counter()
     yield {"type": "start", "request_id": request_id}
@@ -140,7 +141,7 @@ async def answer_question(
     # 2-3. Access and retrieval -------------------------------------------------------------
     yield step("retrieve", "running", "Searching the folders you can access…")
     t = time.perf_counter()
-    result = await services.retriever.retrieve(db, user.id, question)
+    result = await services.retriever.retrieve(db, user.id, question, within)
     yield step(
         "access",
         "pass" if result.allowed_folders else "warn",

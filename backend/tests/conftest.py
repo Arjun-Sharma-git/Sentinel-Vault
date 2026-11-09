@@ -133,9 +133,10 @@ class Api:
         self._as(who)
         return self.client.delete(path, headers=HEADERS, **kw)
 
-    def ask(self, who: str, question: str) -> dict:
+    def ask(self, who: str, question: str, sources: list[str] | None = None) -> dict:
         """Ask and collect the SSE stream into {steps, answer, done, raw}."""
-        response = self.post(who, "/api/ask", json={"question": question})
+        body = {"question": question} | ({"sources": sources} if sources is not None else {})
+        response = self.post(who, "/api/ask", json=body)
         assert response.status_code == 200, response.text
         events = [
             json.loads(line[6:])

@@ -34,6 +34,31 @@ RRF_K = 60
 _WORD = re.compile(r"[A-Za-z0-9]{2,}")
 
 
+def cap_per_document(passages: list[Passage], cap: int, limit: int) -> list[Passage]:
+    """The first `limit` passages in order, taking at most `cap` from any one document. If that
+    leaves slots empty (few documents matched), the passages skipped for the cap fill them, still
+    in order, so capping never returns fewer passages than there are. cap 0 means no cap."""
+    if cap <= 0:
+        return passages[:limit]
+    taken: list[Passage] = []
+    overflow: list[Passage] = []
+    per_doc: dict[str, int] = {}
+    for passage in passages:
+        if len(taken) == limit:
+            break
+        if per_doc.get(passage.document_id, 0) < cap:
+            per_doc[passage.document_id] = per_doc.get(passage.document_id, 0) + 1
+            taken.append(passage)
+        else:
+            overflow.append(passage)
+    if len(taken) < limit:
+        chosen = {id(p) for p in taken}
+        rest = overflow + [p for p in passages if id(p) not in chosen and p not in overflow]
+        taken += rest[: limit - len(taken)]
+        taken.sort(key=passages.index)
+    return taken
+
+
 def mostly_non_latin(text: str) -> bool:
     """More than a third of the letters are outside the Latin script (Hindi, Arabic, CJK...)."""
     letters = [c for c in text if c.isalpha()]
@@ -112,11 +137,21 @@ class Retriever:
     top_k: int = 6
     reranker: Reranker = field(default_factory=NoReranker)
     rerank_candidates: int = 12
+    # At most this many passages per document reach the model (0 = no cap). Without it one long
+    # page can fill every slot: on the GitLab handbook a 40-chunk Navan guide took 7 of 8 and
+    # pushed out the expense policy that actually answered the question.
+    max_per_document: int = 2
 
-    async def retrieve(self, db: AsyncSession, user_id: str, question: str) -> RetrievalResult:
+    async def retrieve(
+        self, db: AsyncSession, user_id: str, question: str, within: set[str] | None = None
+    ) -> RetrievalResult:
+        """`within`: only search these folder ids (a knowledge-source scope). It can only narrow
+        what the user may read, never widen it."""
         timings: dict[str, float] = {}
         start = time.perf_counter()
         allowed = await self.authz.folders_for(user_id, "viewer")
+        if within is not None:
+            allowed = allowed & within
         timings["authz_ms"] = _ms(start)
         if not allowed:
             return RetrievalResult([], allowed, timings_ms=timings)
@@ -146,14 +181,16 @@ class Retriever:
             timings["rerank_skipped"] = 1.0  # English-only reranker, non-Latin question
         if self.reranker.enabled and len(kept) > 1 and not skip:
             start = time.perf_counter()
-            kept = kept[: self.rerank_candidates]  # only permitted passages reach the reranker
+            # Only permitted passages reach the reranker, a few per document so it has a choice.
+            candidate_cap = self.max_per_document + 1 if self.max_per_document else 0
+            kept = cap_per_document(kept, candidate_cap, self.rerank_candidates)
             scores = await self.reranker.score(question, [p.for_rerank() for p in kept])
             for passage, score in zip(kept, scores, strict=True):
                 passage.rerank_score = round(score, 4)
             kept.sort(key=lambda p: p.rerank_score or 0.0, reverse=True)  # stable: RRF breaks ties
             timings["rerank_ms"] = _ms(start)
         return RetrievalResult(
-            kept[: self.top_k],
+            cap_per_document(kept, self.max_per_document, self.top_k),
             allowed,
             len(dense),
             len(lexical),

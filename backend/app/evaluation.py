@@ -31,7 +31,7 @@ from .answer import LlmError, build_messages, extractive_answer, verify
 from .config import BASE_DIR
 from .devices import resolve_device
 from .models import User
-from .rerank import build_reranker
+from .rerank import make_reranker
 from .retrieval import Passage
 from .services import Services
 
@@ -92,8 +92,13 @@ async def _user_ids(services: Services, personas: set[str]) -> dict[str, str]:
 
 
 async def evaluate(
-    services: Services, rerankers: list[str], answers: bool = False, questions: list[Question] | None = None
+    services: Services,
+    rerankers: list[str],
+    answers: bool = False,
+    questions: list[Question] | None = None,
+    within: set[str] | None = None,
 ) -> dict[str, Any]:
+    """`within`: search only these folder ids (a source's own folders); None searches everything."""
     questions = questions or load_questions()
     users = await _user_ids(services, {q.persona for q in questions})
     retriever = services.retriever
@@ -105,16 +110,22 @@ async def evaluate(
     for kind in rerankers:
         # The configured model for the configured kind; each other kind uses its default model.
         model = services.settings.reranker_model if kind == services.settings.reranker else ""
-        reranker = build_reranker(kind, model, device)
-        if kind != "off" and not reranker.enabled:
-            report["configs"][kind] = {"error": "model not available; run download-reranker"}
-            continue
+        if kind == services.settings.reranker and original.enabled:
+            reranker = original  # already loaded by the app: don't put a second copy on the GPU
+        else:
+            reranker = make_reranker(kind, model, device)
+            if reranker.enabled:
+                try:
+                    reranker.load()  # type: ignore[attr-defined]
+                except Exception as exc:  # not cached, offline, out of memory...
+                    report["configs"][kind] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+                    continue
         retriever.reranker = reranker
         rows: list[dict[str, Any]] = []
         for q in questions:
             async with services.sessions() as db:
                 started = time.perf_counter()
-                result = await retriever.retrieve(db, users[q.persona], q.ask)
+                result = await retriever.retrieve(db, users[q.persona], q.ask, within)
                 retrieve_ms = (time.perf_counter() - started) * 1000
             passages = result.passages
             row: dict[str, Any] = {

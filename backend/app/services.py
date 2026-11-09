@@ -124,6 +124,7 @@ async def build_services(
         settings.retrieval_top_k,
         reranker,
         settings.rerank_candidates,
+        settings.retrieval_max_per_document,
     )
     parser = IsolatedParser(
         ParseLimits.from_settings(settings), device.torch_device, settings.parse_network_isolation

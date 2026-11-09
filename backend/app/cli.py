@@ -12,6 +12,10 @@ uv run python -m app.cli download-reranker  fetch the configured reranker model 
 uv run python -m app.cli eval [--answers]   score retrieval (and answers) on eval/golden.yaml
 uv run python -m app.cli gate-eval          fit and test the Laya gate thresholds on eval/gate_hindi.yaml
 uv run python -m app.cli gate-export        add audit-log prompts to eval/gate_labels.local.yaml for labelling
+uv run python -m app.cli source list        knowledge sources (backend/sources/*.yaml)
+uv run python -m app.cli source sync NAME   fetch and convert a source into the library, then scan it
+uv run python -m app.cli source grant NAME  apply a source's folder grants (idempotent; --dry-run)
+uv run python -m app.cli source eval NAME   run a source's eval questions [--rerankers ..] [--answers]
 """
 
 from __future__ import annotations
@@ -29,8 +33,9 @@ from .config import get_settings
 from .db import dispose, session_factory
 from .ingest.library import enqueue_index, scan_library
 from .ingest.worker import drain
-from .models import Document, Folder, Grant, Group, GroupMember, User
+from .models import Document, Group, GroupMember, User
 from .services import build_services
+from .sources import apply_grants, get_source, load_sources, source_folder_ids
 
 DEMO_PASSWORD = os.environ.get("VAULT_DEMO_PASSWORD", "vault-demo-2026")
 
@@ -48,20 +53,15 @@ DEMO_USERS = [  # email, name, admin, groups
     ("carol@acme.example.com", "Carol Engineer", False, ["everyone", "engineering"]),
     ("dave@acme.example.com", "Dave Intern", False, ["everyone"]),
 ]
-# folder path -> [(subject_type, subject, relation)]
-DEMO_GRANTS = {
-    "general": [("group", "everyone", "viewer"), ("group", "hr", "editor")],
-    "engineering": [("group", "engineering", "editor"), ("group", "leadership", "viewer")],
-    "hr": [("group", "hr", "editor"), ("group", "leadership", "viewer")],
-    "financials": [("group", "finance", "editor"), ("group", "leadership", "viewer")],
-    # A one-off per-user grant: Carol may read the engineering budget, not the rest of finance.
-    "financials/engineering-budget": [("user", "carol@acme.example.com", "viewer")],
-    "management": [("group", "leadership", "editor")],
-}
+# Demo grants live in sources/demo.yaml (applied by seed-demo).
 
 
 async def _services():
-    return await build_services(get_settings(), session_factory())
+    """The app's services without the prompt gate: no CLI command that builds them asks
+    questions through the gate (gate-eval loads its own), and Laya would put a second copy of
+    its models on the GPU next to a running API's."""
+    settings = get_settings().model_copy(update={"gate_engine": "off", "gate_second_stage": "off"})
+    return await build_services(settings, session_factory())
 
 
 async def create_admin(email: str, name: str) -> None:
@@ -106,26 +106,10 @@ async def seed_demo_into(services) -> None:
                 await db.flush()
                 users[email] = user
                 db.add_all(GroupMember(group_id=groups[g].id, user_id=user.id) for g in group_names)
-        folders = {f.path: f for f in (await db.scalars(select(Folder))).all()}
-        existing = {
-            (g.folder_id, g.subject_type, g.subject_id, g.relation)
-            for g in (await db.scalars(select(Grant))).all()
-        }
-        for path, grants in DEMO_GRANTS.items():
-            if path not in folders:
-                continue
-            for subject_type, subject, relation in grants:
-                subject_id = groups[subject].id if subject_type == "group" else users[subject].id
-                key = (folders[path].id, subject_type, subject_id, relation)
-                if key not in existing:
-                    db.add(
-                        Grant(
-                            folder_id=key[0],
-                            subject_type=subject_type,
-                            subject_id=subject_id,
-                            relation=relation,
-                        )
-                    )
+        await db.flush()
+        result = await apply_grants(db, get_source("demo"), skip_missing=True)
+        if result["problems"]:
+            raise SystemExit(f"demo grants: {'; '.join(result['problems'])}")
         await db.commit()
     await services.authz.sync()
 
@@ -224,6 +208,92 @@ def download_reranker() -> None:
     print(f"{reranker.name} is cached.")
 
 
+async def source_list() -> None:
+    from .models import Document
+
+    sources = load_sources()
+    async with session_factory()() as db:
+        paths = [
+            p
+            for (p,) in (
+                await db.execute(select(Document.rel_path).where(Document.status == "indexed"))
+            ).all()
+        ]
+    owned = {s.folder for s in sources.values() if s.folder != "."}
+    for source in sources.values():
+        if source.folder == ".":
+            count = sum(1 for p in paths if p.split("/", 1)[0] not in owned)
+        else:
+            count = sum(1 for p in paths if p.startswith(source.folder + "/"))
+        how = "git" if source.fetch and source.fetch.git else "path" if source.fetch else "by hand"
+        print(
+            f"{source.name:20} folder {source.folder:18} {count:6} indexed documents  "
+            f"fetch: {how}  {source.title}"
+        )
+
+
+async def source_sync(name: str, scan_after: bool = True) -> None:
+    from .sources import build
+
+    settings = get_settings()
+    sources = load_sources()
+    source = sources[name] if name in sources else get_source(name)
+    cache = settings.sources_cache_dir or settings.library_dir.parent / "sources"
+    result, replaced, revision = build(source, cache, settings.library_dir, sources)
+    print(
+        f"{source.name} at {revision}: {result.files} files ({result.titled} titled from front matter, "
+        f"{len(result.skipped)} hidden paths skipped) -> {', '.join(replaced)}"
+    )
+    if scan_after:
+        services = await _services()
+        try:
+            async with services.sessions() as db:
+                print(await scan_library(db, services.vectors, settings.library_dir))
+        finally:
+            await services.close()
+        print("queued for indexing; the API's worker (or `app.cli index`) picks them up.")
+
+
+async def source_grant(name: str, dry_run: bool) -> None:
+    source = get_source(name)
+    services = await _services()
+    try:
+        async with services.sessions() as db:
+            result = await apply_grants(db, source, dry_run=dry_run)
+        if result["problems"]:
+            raise SystemExit(f"{name}: nothing written. " + "; ".join(result["problems"]))
+        print(
+            f"{name}: {result['added']} grants {'to add' if dry_run else 'added'}, "
+            f"{result['existing']} already there"
+        )
+        if not dry_run and result["added"]:
+            print("authz sync:", await services.authz.sync())
+    finally:
+        await services.close()
+
+
+async def source_eval(name: str, rerankers: list[str], answers: bool, mixed: bool = False) -> None:
+    from .config import BASE_DIR
+    from .evaluation import evaluate, load_questions, render, save
+
+    source = get_source(name)
+    path = source.eval_path()
+    if path is None or not path.exists():
+        raise SystemExit(f"{name}: no eval questions ({source.eval or 'eval not set'})")
+    services = await _services()
+    try:
+        within = None
+        if not mixed:  # search the source's own folders, as a user who picked it would
+            async with services.sessions() as db:
+                within = await source_folder_ids(db, [name], load_sources())
+        report = await evaluate(services, rerankers, answers, load_questions(path), within)
+    finally:
+        await services.close()
+    report["source"], report["scope"] = name, "everything readable" if mixed else f"source {name}"
+    print(render(report))
+    print(f"\nfull report: {save(report, BASE_DIR / 'eval' / 'results')}")
+
+
 async def gate_export(days: int, sample: int) -> None:
     from .gate_labels import LABELS, export_for_labelling
 
@@ -309,6 +379,22 @@ def main() -> None:
     export = sub.add_parser("gate-export", help="add audit-log prompts to eval/gate_labels.local.yaml")
     export.add_argument("--days", type=int, default=30, help="how far back to look")
     export.add_argument("--sample", type=int, default=50, help="random ordinary questions to add")
+    src = sub.add_parser("source", help="knowledge sources: list, sync, grant, eval")
+    src_sub = src.add_subparsers(dest="action", required=True)
+    src_sub.add_parser("list")
+    sync_p = src_sub.add_parser("sync")
+    sync_p.add_argument("name")
+    sync_p.add_argument("--no-scan", action="store_true", help="convert and install only")
+    grant_p = src_sub.add_parser("grant")
+    grant_p.add_argument("name")
+    grant_p.add_argument("--dry-run", action="store_true")
+    eval_p = src_sub.add_parser("eval")
+    eval_p.add_argument("name")
+    eval_p.add_argument(
+        "--rerankers", default="off,cross-encoder", help="comma-separated: off, cross-encoder, qwen"
+    )
+    eval_p.add_argument("--answers", action="store_true")
+    eval_p.add_argument("--mixed", action="store_true", help="search the whole library, not just this source")
     rebuild = sub.add_parser("reindex")
     rebuild.add_argument("--recreate", action="store_true", help="drop and rebuild the vector collection")
     args = parser.parse_args()
@@ -332,6 +418,17 @@ def main() -> None:
         "sync-authz": sync_authz,
         "reindex": lambda: reindex(args.recreate),
         "gate-export": lambda: gate_export(args.days, args.sample),
+        "source": lambda: {
+            "list": lambda: source_list(),
+            "sync": lambda: source_sync(args.name, not args.no_scan),
+            "grant": lambda: source_grant(args.name, args.dry_run),
+            "eval": lambda: source_eval(
+                args.name,
+                [k.strip() for k in args.rerankers.split(",") if k.strip()],
+                args.answers,
+                args.mixed,
+            ),
+        }[args.action](),
         "eval": lambda: run_eval([k.strip() for k in args.rerankers.split(",") if k.strip()], args.answers),
     }
 

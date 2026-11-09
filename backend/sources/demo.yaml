@@ -1,0 +1,19 @@
+# The demo company (Acme): the documents in the repo's data/library, at the library root.
+name: demo
+title: Acme demo company
+folder: "."                 # its folders (general, engineering, ...) sit at the library root
+fetch:
+  path: ../data/library     # relative to backend/
+convert: copy
+closed_root: false
+require_all_granted: false  # the library root is shared with other sources
+grants:
+  - {group: everyone, folders: [general]}
+  - {group: hr, relation: editor, folders: [general, hr]}
+  - {group: engineering, relation: editor, folders: [engineering]}
+  - {group: finance, relation: editor, folders: [financials]}
+  - {group: leadership, folders: [engineering, hr, financials]}
+  - {group: leadership, relation: editor, folders: [management]}
+  # A one-off per-user grant: Carol may read the engineering budget, not the rest of finance.
+  - {user: carol@acme.example.com, folders: [financials/engineering-budget]}
+eval: eval/golden.yaml

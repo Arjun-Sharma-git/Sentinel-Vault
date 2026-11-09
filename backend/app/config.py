@@ -87,10 +87,13 @@ class Settings(BaseSettings):
 
     # ---- Library and retrieval --------------------------------------------------------
     library_dir: Path = REPO_DIR / "data" / "library"
+    # Where `source sync` keeps fetched upstream copies (git clones). Default: <library>/../sources
+    sources_cache_dir: Path | None = None
     max_upload_mb: int = 50
     chunk_max_tokens: int = 400
     retrieval_candidates: int = 30  # per search leg (dense and full-text)
     retrieval_top_k: int = 6  # chunks given to the model
+    retrieval_max_per_document: int = 2  # of those, at most this many from one document (0 = no cap)
     # Reorder the fused candidates with a cross-encoder before taking the top k (rerank.py).
     # cross-encoder: MiniLM-L6, fast on CPU (laptop). qwen: Qwen3-Reranker-0.6B, for a GPU.
     reranker: Literal["off", "cross-encoder", "qwen"] = "cross-encoder"
