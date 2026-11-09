@@ -89,3 +89,38 @@ def test_safe_filename():
     assert safe_filename("..\\..\\win.ini") == "win.ini"
     assert safe_filename(".hidden.md") == "hidden.md"
     assert safe_filename("Q3 report (final).pdf") == "Q3 report _final_.pdf"
+
+
+async def test_ollama_embedding_retries_once_after_the_model_process_crashes(monkeypatch):
+    import httpx
+
+    from app import embeddings
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(400, json={"error": "llama-server process no longer running"})
+        return httpx.Response(200, json={"embeddings": [[0.1, 0.2]]})
+
+    monkeypatch.setattr(embeddings, "RETRY_DELAY_SECONDS", 0)
+    embedder = embeddings.OllamaEmbedder("http://ollama.test", "m")
+    embedder._http = httpx.AsyncClient(base_url="http://ollama.test", transport=httpx.MockTransport(handler))
+    assert await embedder.embed_documents(["x"]) == [[0.1, 0.2]]
+    assert len(calls) == 2
+
+
+async def test_ollama_embedding_gives_up_after_the_retry(monkeypatch):
+    import httpx
+    import pytest
+
+    from app import embeddings
+
+    monkeypatch.setattr(embeddings, "RETRY_DELAY_SECONDS", 0)
+    embedder = embeddings.OllamaEmbedder("http://ollama.test", "m")
+    embedder._http = httpx.AsyncClient(
+        base_url="http://ollama.test", transport=httpx.MockTransport(lambda r: httpx.Response(400))
+    )
+    with pytest.raises(embeddings.EmbeddingError):
+        await embedder.embed_documents(["x"])

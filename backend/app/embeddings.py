@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import re
@@ -15,6 +16,10 @@ QUERY_INSTRUCTION = (
     "documents that answer it\nQuery: "
 )
 BATCH = 16
+# Ollama answers 400/5xx when its model process dies mid-request (seen on the RX 9070 XT: a ROCm
+# flash-attention abort in llama.cpp) and restarts it on the next call, so one retry after a
+# short pause turns a crash into a delay. A genuinely bad request just fails twice.
+RETRY_DELAY_SECONDS = 1.5
 
 
 class EmbeddingError(RuntimeError):
@@ -40,14 +45,16 @@ class OllamaEmbedder:
     async def _embed(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for start in range(0, len(texts), BATCH):
-            try:
-                response = await self._http.post(
-                    "/api/embed",
-                    json={"model": self.model, "input": texts[start : start + BATCH], "truncate": True},
-                )
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise EmbeddingError(f"Ollama embedding failed ({self.model}): {exc}") from exc
+            body = {"model": self.model, "input": texts[start : start + BATCH], "truncate": True}
+            for attempt in (1, 2):
+                try:
+                    response = await self._http.post("/api/embed", json=body)
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPError as exc:
+                    if attempt == 2:
+                        raise EmbeddingError(f"Ollama embedding failed ({self.model}): {exc}") from exc
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)
             vectors.extend(response.json()["embeddings"])
         if vectors:
             self.dimensions = len(vectors[0])
