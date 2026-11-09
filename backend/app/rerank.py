@@ -40,6 +40,10 @@ _SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 class Reranker(Protocol):
     name: str
     enabled: bool
+    # Trained on English only: it reads other scripts badly enough to push the right passage
+    # down (MiniLM moved the right Hindi document out of first place on 8 of 12 eval questions),
+    # so the retriever skips it for questions in a non-Latin script and keeps the fused order.
+    english_only: bool
 
     async def score(self, query: str, documents: list[str]) -> list[float]:
         """Relevance of each document to the query, in [0, 1]."""
@@ -49,6 +53,7 @@ class Reranker(Protocol):
 class NoReranker:
     name = "off"
     enabled = False
+    english_only = False
 
     async def score(self, query: str, documents: list[str]) -> list[float]:
         return [0.0] * len(documents)
@@ -56,6 +61,7 @@ class NoReranker:
 
 class QwenReranker:
     enabled = True
+    english_only = False  # multilingual
 
     def __init__(
         self,
@@ -128,6 +134,7 @@ class CrossEncoderReranker:
     """A BERT-style cross-encoder: (query, passage) in, one relevance logit out."""
 
     enabled = True
+    english_only = True  # ms-marco MiniLM
 
     def __init__(
         self,

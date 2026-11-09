@@ -34,6 +34,15 @@ RRF_K = 60
 _WORD = re.compile(r"[A-Za-z0-9]{2,}")
 
 
+def mostly_non_latin(text: str) -> bool:
+    """More than a third of the letters are outside the Latin script (Hindi, Arabic, CJK...)."""
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return False
+    other = sum(1 for c in letters if ord(c) > 0x024F)  # past Latin Extended-B
+    return other * 3 > len(letters)
+
+
 @dataclass
 class Passage:
     chunk_id: str
@@ -132,7 +141,10 @@ class Retriever:
         kept = [p for p in passages if p.folder_id in confirmed and p.folder_id in allowed]
         timings["recheck_ms"] = _ms(start)
 
-        if self.reranker.enabled and len(kept) > 1:
+        skip = getattr(self.reranker, "english_only", False) and mostly_non_latin(question)
+        if skip:
+            timings["rerank_skipped"] = 1.0  # English-only reranker, non-Latin question
+        if self.reranker.enabled and len(kept) > 1 and not skip:
             start = time.perf_counter()
             kept = kept[: self.rerank_candidates]  # only permitted passages reach the reranker
             scores = await self.reranker.score(question, [p.for_rerank() for p in kept])

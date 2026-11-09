@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.cli import DEMO_USERS
 from app.evaluation import facts_present, first_hit, load_questions, summarize
-from app.retrieval import Passage, Retriever
+from app.retrieval import Passage, Retriever, mostly_non_latin
 
 LIBRARY = Path(__file__).resolve().parents[2] / "data" / "library"
 
@@ -54,6 +54,23 @@ def test_reranker_only_reads_permitted_passages(api):
     assert reranker.seen  # it did run
     assert not any("TEAL-HERON-58" in text for text in reranker.seen)
     assert not any(p.folder_path.startswith("hr") for p in passages)
+
+
+def test_english_only_rerankers_skip_hindi_questions(api):
+    english_only = RecordingReranker(favorite="Laptops are replaced")
+    english_only.english_only = True
+    _retrieve(api, "alice", "मेरा लैपटॉप चोरी हो गया, रिपोर्ट कब करूँ?", english_only)
+    assert english_only.seen == []  # fused order kept
+    _retrieve(api, "alice", "laptop wifi passwords travel", english_only)
+    assert english_only.seen  # English still reranked
+
+
+def test_script_detection():
+    assert mostly_non_latin("पूर्णकालिक कर्मचारियों को कितनी छुट्टी मिलती है?")
+    assert mostly_non_latin("PayGate को साल में कितना भुगतान करते हैं?")  # Latin names inside Hindi
+    assert not mostly_non_latin("How much do we pay PayGate per year?")
+    assert not mostly_non_latin("kya main bachi hui chhuttiyan le ja sakta hoon?")  # Hinglish
+    assert not mostly_non_latin("1234 ?")
 
 
 # ---- The harness ----------------------------------------------------------------------
