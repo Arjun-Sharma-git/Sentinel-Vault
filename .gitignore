@@ -49,3 +49,5 @@ Thumbs.db
 data/library/**/.upload-*
 # evaluation runs (summaries go in the README)
 backend/eval/results/
+# real prompts exported from the audit log for labelling
+*.local.yaml

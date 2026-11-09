@@ -13,7 +13,8 @@ from .authz.factory import build_authz
 from .config import Settings
 from .devices import resolve_device
 from .embeddings import Embedder, HashEmbedder, OllamaEmbedder
-from .gate import PromptGate, Thresholds, build_gate
+from .gate import PromptGate, SimilarityCheck, Thresholds, build_gate
+from .gate_labels import known_examples
 from .ingest.indexer import Indexer
 from .ingest.sandbox import IsolatedParser, ParseLimits
 from .rerank import build_reranker
@@ -84,7 +85,17 @@ async def build_services(
         llm_url=settings.ollama_url,
         llm_model=settings.gate_second_stage_model or settings.llm_model,
         second_stage_timeout=settings.gate_second_stage_timeout_seconds,
+        similarity=(
+            SimilarityCheck(embedder, *known_examples(), settings.gate_similarity_threshold)
+            if settings.gate_engine == "laya" and settings.gate_similarity_threshold is not None
+            else None
+        ),
     )
+    if gate.similarity is not None:
+        try:
+            await gate.similarity.warm()
+        except Exception as exc:  # embedding unavailable: the check retries on the first prompt
+            logger.warning("similarity check not warmed: %s", exc)
     llm = (
         OllamaChat(
             settings.ollama_url,

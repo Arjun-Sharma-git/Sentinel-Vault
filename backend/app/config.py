@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     gate_second_stage: Literal["off", "review", "all"] = "review"
     gate_second_stage_model: str = ""  # default: LLM_MODEL
     gate_second_stage_timeout_seconds: float = 15.0
+    # Hindi and Hinglish prompts much closer to a known attack than to any known ordinary
+    # question (eval/gate_hindi.yaml + labelled real prompts) are blocked. Unset to turn off.
+    gate_similarity_threshold: float | None = 0.08
 
     # ---- Library and retrieval --------------------------------------------------------
     library_dir: Path = REPO_DIR / "data" / "library"

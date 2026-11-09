@@ -93,6 +93,9 @@ async def answer_question(
         "injection": round(verdict.injection, 3),
         "exfiltration": round(verdict.exfiltration, 3),
     }
+    if verdict.similarity is not None:
+        gate_data["similarity"] = verdict.similarity
+        gate_audit["similarity"] = verdict.similarity
     if verdict.second_stage is not None:
         gate_data["second_stage"] = verdict.second_stage
         gate_audit["second_stage"] = verdict.second_stage

@@ -5,6 +5,9 @@ prompt injection (override instructions, impersonate someone, bypass access cont
 bulk exfiltration ("export every record"). Above the thresholds the request is refused before
 anything is retrieved.
 
+Hindi and Hinglish prompts are also compared with known examples (`SimilarityCheck`): a prompt
+much closer to a known attack than to any known ordinary question is blocked.
+
 A second stage (`SecondStage`) looks again at prompts the first pass reads badly: Hindi in the
 review band and Latin-script text that isn't recognisably English (Hinglish). The local LLM
 translates the prompt for Laya's English checkpoint and, in parallel, answers the two questions
@@ -68,6 +71,7 @@ class GateVerdict:
     thresholds: Thresholds | None = None
     review: bool = False  # allowed, but close enough to a threshold to be worth a look
     second_stage: dict[str, Any] | None = None  # what the second stage saw, when it ran
+    similarity: float | None = None  # closest known attack minus closest known ordinary prompt
 
 
 @dataclass(frozen=True)
@@ -269,6 +273,63 @@ class SecondStage:
         await self._http.aclose()
 
 
+class TextEmbedder(Protocol):
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class SimilarityCheck:
+    """How much closer a prompt is to a known attack than to a known ordinary question.
+
+    margin = max cosine similarity to the known attacks - max similarity to the known ordinary
+    prompts, with the embedding model retrieval already uses. Known examples come from
+    eval/gate_hindi.yaml and labelled real prompts, so labelling a missed attack teaches the gate
+    to catch its paraphrases. `exclude_exact` ignores an example whose text is the prompt itself
+    (gate-eval only, so a prompt can't match its own entry)."""
+
+    def __init__(
+        self,
+        embedder: TextEmbedder,
+        attacks: list[str],
+        ordinary: list[str],
+        threshold: float,
+        exclude_exact: bool = False,
+    ) -> None:
+        self.embedder = embedder
+        self.attacks, self.ordinary = list(attacks), list(ordinary)
+        self.threshold = threshold
+        self.exclude_exact = exclude_exact
+        self._matrix: Any = None
+        self._lock = asyncio.Lock()
+
+    async def _ready(self) -> Any:
+        import numpy as np
+
+        async with self._lock:
+            if self._matrix is None:
+                vectors = np.array(
+                    await self.embedder.embed_documents(self.attacks + self.ordinary), dtype=np.float32
+                )
+                vectors /= np.linalg.norm(vectors, axis=1, keepdims=True) + 1e-12
+                self._matrix = vectors
+        return self._matrix
+
+    async def warm(self) -> None:
+        """Embed the known examples now (~2 s for a few hundred) instead of on the first prompt."""
+        await self._ready()
+
+    async def margin(self, prompt: str) -> float:
+        import numpy as np
+
+        matrix = await self._ready()
+        vector = np.array((await self.embedder.embed_documents([prompt]))[0], dtype=np.float32)
+        sims = matrix @ (vector / (np.linalg.norm(vector) + 1e-12))
+        if self.exclude_exact:
+            texts = self.attacks + self.ordinary
+            sims = np.where(np.array([t == prompt for t in texts]), -1.0, sims)
+        n = len(self.attacks)
+        return round(float(sims[:n].max() - sims[n:].max()), 4)
+
+
 class PromptGate:
     """Applies thresholds to the engine's scores. `per_profile` overrides the defaults for a
     checkpoint (Laya's `multilingual` scores run higher on ordinary text than `english`, so it
@@ -284,6 +345,7 @@ class PromptGate:
         review_threshold: float | None = None,
         second_stage: SecondOpinionEngine | None = None,
         second_stage_scope: Literal["review", "all"] = "review",
+        similarity: SimilarityCheck | None = None,
     ):
         self.engine = engine
         self.default = Thresholds(injection_threshold, exfil_threshold)
@@ -291,6 +353,7 @@ class PromptGate:
         self.review_threshold = review_threshold
         self.second_stage = second_stage
         self.second_stage_scope = second_stage_scope
+        self.similarity = similarity
 
     @property
     def name(self) -> str:
@@ -339,6 +402,18 @@ class PromptGate:
         start = time.perf_counter()
         scores = await asyncio.to_thread(self.engine.score, prompt)
         reasons, limits, review = self.judge(scores)
+        margin: float | None = None
+        failed = False
+        # Hindi and Hinglish only: the known examples are Hindi and Hinglish, and English is
+        # read well by the first pass.
+        if not reasons and self.similarity and (scores.profile == "multilingual" or scores.undecided_latin):
+            try:
+                margin = await self.similarity.margin(prompt)
+            except Exception as exc:  # embedding down: skip this check, flag for review
+                logger.warning("similarity check failed: %s", exc)
+                failed = True
+            if margin is not None and margin >= self.similarity.threshold:
+                reasons.append(f"Very close to a known attack (similarity margin {margin:+.2f})")
         second: dict[str, Any] | None = None
         if not reasons and self.wants_second_look(scores, review):
             assert self.second_stage is not None
@@ -348,11 +423,13 @@ class PromptGate:
                 opinion = SecondOpinion(False, [], {"error": f"{type(exc).__name__}: {exc}"[:300]})
             second = {"blocked": opinion.blocked, **opinion.detail}
             reasons += opinion.reasons
-            failed = "error" in opinion.detail or any(
-                isinstance(part, dict) and "error" in part for part in opinion.detail.values()
+            failed = (
+                failed
+                or "error" in opinion.detail
+                or any(isinstance(part, dict) and "error" in part for part in opinion.detail.values())
             )
-            # Let through after a second look: still reviewed if it was borderline or a check failed.
-            review = not reasons and (review or failed)
+        # Allowed: still reviewed if it was borderline or a check failed.
+        review = not reasons and (review or failed)
         return GateVerdict(
             not reasons,
             scores.injection,
@@ -364,6 +441,7 @@ class PromptGate:
             limits,
             review,
             second,
+            margin,
         )
 
     async def close(self) -> None:
@@ -383,6 +461,7 @@ def build_gate(
     llm_url: str = "",
     llm_model: str = "",
     second_stage_timeout: float = 15.0,
+    similarity: SimilarityCheck | None = None,
 ) -> PromptGate:
     chosen: GateEngine | None = None
     if engine == "laya":
@@ -404,5 +483,5 @@ def build_gate(
         second = SecondStage(llm_url, llm_model, chosen, english, second_stage_timeout)
     scope: Literal["review", "all"] = "all" if second_stage == "all" else "review"
     return PromptGate(
-        chosen, injection_threshold, exfil_threshold, per_profile, review_threshold, second, scope
+        chosen, injection_threshold, exfil_threshold, per_profile, review_threshold, second, scope, similarity
     )

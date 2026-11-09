@@ -11,6 +11,7 @@ uv run python -m app.cli download-docling   fetch Docling's PDF models once (the
 uv run python -m app.cli download-reranker  fetch the configured reranker model once
 uv run python -m app.cli eval [--answers]   score retrieval (and answers) on eval/golden.yaml
 uv run python -m app.cli gate-eval          fit and test the Laya gate thresholds on eval/gate_hindi.yaml
+uv run python -m app.cli gate-export        add audit-log prompts to eval/gate_labels.local.yaml for labelling
 """
 
 from __future__ import annotations
@@ -223,10 +224,23 @@ def download_reranker() -> None:
     print(f"{reranker.name} is cached.")
 
 
-def gate_eval(budget: float, second_stage: str | None) -> None:
+async def gate_export(days: int, sample: int) -> None:
+    from .gate_labels import LABELS, export_for_labelling
+
+    async with session_factory()() as db:
+        counts = await export_for_labelling(db, LABELS, days, sample)
+    print(
+        f"added {counts['review']} review, {counts['blocked']} blocked and {counts['sample']} sampled "
+        f"prompts; "
+        f"{counts['labelled']} of {counts['total']} labelled in {LABELS}"
+    )
+
+
+def gate_eval(budget: float, second_stage: str | None, similarity: float | None, no_similarity: bool) -> None:
     """Score eval/gate_hindi.yaml and the golden questions with Laya; fit per-checkpoint thresholds."""
     from .config import BASE_DIR, get_settings
     from .devices import resolve_device
+    from .embeddings import OllamaEmbedder
     from .gate import LayaGate, SecondStage, Thresholds
     from .gate_eval import evaluate_gate, render_gate, save_gate
 
@@ -245,7 +259,17 @@ def gate_eval(budget: float, second_stage: str | None) -> None:
             settings.gate_second_stage_timeout_seconds,
         )
     )
-    report = evaluate_gate(engine, budget, default, second, scope, settings.gate_review_threshold)
+    threshold = (
+        None
+        if no_similarity
+        else (similarity if similarity is not None else settings.gate_similarity_threshold)
+    )
+    embedder = (
+        OllamaEmbedder(settings.ollama_url, settings.embedding_model) if threshold is not None else None
+    )
+    report = evaluate_gate(
+        engine, budget, default, second, scope, settings.gate_review_threshold, embedder, threshold
+    )
     print(render_gate(report))
     print(f"\nfull report: {save_gate(report, BASE_DIR / 'eval' / 'results')}")
 
@@ -278,6 +302,13 @@ def main() -> None:
         "--budget", type=float, default=0.02, help="largest share of ordinary prompts the gate may block"
     )
     gates.add_argument("--second-stage", choices=["off", "review", "all"], help="default: GATE_SECOND_STAGE")
+    gates.add_argument(
+        "--similarity", type=float, help="margin threshold (default: GATE_SIMILARITY_THRESHOLD)"
+    )
+    gates.add_argument("--no-similarity", action="store_true", help="leave the similarity check out")
+    export = sub.add_parser("gate-export", help="add audit-log prompts to eval/gate_labels.local.yaml")
+    export.add_argument("--days", type=int, default=30, help="how far back to look")
+    export.add_argument("--sample", type=int, default=50, help="random ordinary questions to add")
     rebuild = sub.add_parser("reindex")
     rebuild.add_argument("--recreate", action="store_true", help="drop and rebuild the vector collection")
     args = parser.parse_args()
@@ -291,7 +322,7 @@ def main() -> None:
         downloads[args.command]()
         return
     if args.command == "gate-eval":
-        gate_eval(args.budget, args.second_stage)
+        gate_eval(args.budget, args.second_stage, args.similarity, args.no_similarity)
         return
     commands = {
         "create-admin": lambda: create_admin(args.email, args.name),
@@ -300,6 +331,7 @@ def main() -> None:
         "index": index,
         "sync-authz": sync_authz,
         "reindex": lambda: reindex(args.recreate),
+        "gate-export": lambda: gate_export(args.days, args.sample),
         "eval": lambda: run_eval([k.strip() for k in args.rerankers.split(",") if k.strip()], args.answers),
     }
 

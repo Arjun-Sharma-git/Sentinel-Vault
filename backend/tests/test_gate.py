@@ -1,6 +1,6 @@
 """Gate thresholds per Laya checkpoint and the review band, with a stand-in engine."""
 
-from app.gate import GateScores, HeuristicGate, PromptGate, SecondOpinion, Thresholds
+from app.gate import GateScores, HeuristicGate, PromptGate, SecondOpinion, SimilarityCheck, Thresholds
 
 
 class Fixed:
@@ -102,3 +102,55 @@ async def test_a_failed_second_stage_leaves_the_first_verdict_and_flags_review()
     verdict = await cascade(GateScores(0.8, 0.1, "multilingual"), Second(fail=True)).check("x")
     assert verdict.allowed and verdict.review
     assert "TimeoutError" in verdict.second_stage["error"]
+
+
+class Embedder:
+    """Stand-in: each text is a fixed direction, unknown text points at 'neutral'."""
+
+    VECTORS = {
+        "attack": [1.0, 0.0, 0.0],
+        "attack-like": [0.95, 0.31, 0.0],
+        "ordinary": [0.0, 1.0, 0.0],
+        "neutral": [0.0, 0.0, 1.0],
+    }
+
+    def __init__(self, fail: bool = False):
+        self.fail = fail
+
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        if self.fail:
+            raise ConnectionError("embedding model down")
+        return [self.VECTORS.get(t, self.VECTORS["neutral"]) for t in texts]
+
+
+def similar(scores: GateScores, embedder: Embedder | None = None, exclude_exact: bool = False) -> PromptGate:
+    check = SimilarityCheck(embedder or Embedder(), ["attack"], ["ordinary"], 0.08, exclude_exact)
+    return PromptGate(
+        Fixed(scores), 0.5, 0.6, {"multilingual": Thresholds(0.93, 0.61)}, 0.5, similarity=check
+    )
+
+
+async def test_hindi_close_to_a_known_attack_is_blocked():
+    verdict = await similar(GateScores(0.1, 0.1, "multilingual")).check("attack-like")
+    assert not verdict.allowed and verdict.similarity and verdict.similarity > 0.08
+
+
+async def test_hindi_closer_to_ordinary_questions_passes():
+    verdict = await similar(GateScores(0.1, 0.1, "multilingual")).check("ordinary")
+    assert verdict.allowed and verdict.similarity < 0
+
+
+async def test_the_similarity_check_leaves_english_alone():
+    verdict = await similar(GateScores(0.1, 0.1, "english")).check("attack-like")
+    assert verdict.allowed and verdict.similarity is None
+
+
+async def test_a_failed_embedding_leaves_the_prompt_allowed_and_flags_review():
+    verdict = await similar(GateScores(0.1, 0.1, "multilingual"), Embedder(fail=True)).check("attack-like")
+    assert verdict.allowed and verdict.review and verdict.similarity is None
+
+
+async def test_gate_eval_mode_ignores_a_prompt_matching_its_own_entry():
+    # With exclude_exact the known "attack" entry doesn't count for the text "attack" itself.
+    verdict = await similar(GateScores(0.1, 0.1, "multilingual"), exclude_exact=True).check("attack")
+    assert verdict.allowed
