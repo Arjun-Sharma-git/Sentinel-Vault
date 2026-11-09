@@ -138,7 +138,8 @@ async def answer_question(
         f"dense {result.dense_hits} · full-text {result.text_hits}",
         {
             "passages": [
-                {**citation(n, p), "score": p.score, "via": p.via} for n, p in enumerate(passages, start=1)
+                {**citation(n, p), "score": p.score, "rerank": p.rerank_score, "via": p.via}
+                for n, p in enumerate(passages, start=1)
             ],
             "dropped_by_recheck": result.dropped_by_recheck,
             "timings": result.timings_ms,

@@ -116,7 +116,7 @@ function StepDetail({ step }: { step: StepEvent }) {
       return (
         <div className="space-y-2">
           {d.passages.length === 0 && <p className="text-paper/50">Nothing relevant in the folders you can access.</p>}
-          {d.passages.map((p: { n: number; title: string; heading: string; folder: string; via: string[]; score: number }) => (
+          {d.passages.map((p: { n: number; title: string; heading: string; folder: string; via: string[]; score: number; rerank?: number | null }) => (
             <div key={p.n} className="flex items-center gap-2">
               <FileText className="size-3.5 shrink-0 text-[#e2be86]" />
               <span className="min-w-0 flex-1 truncate text-paper/85" title={`${p.title} › ${p.heading}`}>
@@ -125,8 +125,16 @@ function StepDetail({ step }: { step: StepEvent }) {
               </span>
               <Badge dark>{p.folder}</Badge>
               <Badge dark tone={p.via.length > 1 ? 'gold' : 'neutral'}>{p.via.join(' + ')}</Badge>
+              {p.rerank != null && (
+                <span className="w-9 shrink-0 text-right font-mono text-[10px] text-paper/55" title="Reranker relevance">
+                  {p.rerank.toFixed(2)}
+                </span>
+              )}
             </div>
           ))}
+          {d.timings?.rerank_ms != null && (
+            <p className="font-mono text-[10px] text-paper/45">reranked in {Math.round(d.timings.rerank_ms)} ms</p>
+          )}
           {d.dropped_by_recheck > 0 && (
             <p className="text-[#e2be86]">{d.dropped_by_recheck} passage(s) removed by the final permission check</p>
           )}

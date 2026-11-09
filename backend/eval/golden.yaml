@@ -1,0 +1,79 @@
+# Golden questions for `uv run python -m app.cli eval`.
+#
+#   ask      the question, as an employee would type it (paraphrased on purpose, so exact
+#            keyword overlap with the document is not guaranteed)
+#   as       demo persona asking (alice can see every folder, so her questions search the
+#            whole library; the others check that a narrower view still finds its documents)
+#   expect   library paths that answer it (retrieval is scored on these)
+#   facts    strings the answer must contain; a list inside the list means "any of these"
+#   answerable: false   the persona has no permitted document that answers it; the right
+#            outcome is "I couldn't find this", never an answer
+questions:
+  # ---- general/employee-handbook.md
+  - {ask: "How many days of paid time off do full-time employees get?", as: alice, expect: [general/employee-handbook.md], facts: ["25"]}
+  - {ask: "Can I carry unused vacation days over into next year?", as: alice, expect: [general/employee-handbook.md], facts: ["5"]}
+  - {ask: "How much leave do interns build up each month?", as: alice, expect: [general/employee-handbook.md], facts: ["1.5"]}
+  - {ask: "When am I expected to be online during the day?", as: alice, expect: [general/employee-handbook.md], facts: ["10:00", "16:00"]}
+  - {ask: "How many days a week can I work from home?", as: alice, expect: [general/employee-handbook.md], facts: [[three, "3"]]}
+  - {ask: "Is there money for training courses and books?", as: alice, expect: [general/employee-handbook.md], facts: [["1,500", "1500"]]}
+  # ---- general/it-help.md
+  - {ask: "Which wifi should visitors connect to?", as: alice, expect: [general/it-help.md], facts: [Acme-Guest]}
+  - {ask: "How long until I get a new laptop?", as: alice, expect: [general/it-help.md], facts: [[three, "3"]]}
+  - {ask: "My laptop was stolen. How quickly do I have to report it?", as: alice, expect: [general/it-help.md], facts: ["24"]}
+  - {ask: "How should I send a colleague a password?", as: alice, expect: [general/it-help.md], facts: [password manager]}
+  # ---- engineering/architecture-overview.md
+  - {ask: "How many services does the platform run?", as: alice, expect: [engineering/architecture-overview.md], facts: ["14"]}
+  - {ask: "What programming language is the payments service built with?", as: alice, expect: [engineering/architecture-overview.md], facts: [Go]}
+  - {ask: "How are production releases rolled out?", as: alice, expect: [engineering/architecture-overview.md], facts: [["5%", "canary"]]}
+  - {ask: "How fast does on-call need to respond to a page?", as: alice, expect: [engineering/architecture-overview.md], facts: ["15"]}
+  # ---- engineering/runbooks/incident-2026-10-14.md
+  - {ask: "What caused the card payment failures in October?", as: alice, expect: [engineering/runbooks/incident-2026-10-14.md], facts: [[certificate, TLS]]}
+  - {ask: "How long were card payments down during the outage?", as: alice, expect: [engineering/runbooks/incident-2026-10-14.md], facts: ["47"]}
+  - {ask: "What are we doing so the certificate problem doesn't happen again?", as: alice, expect: [engineering/runbooks/incident-2026-10-14.md], facts: [cert-manager]}
+  # ---- engineering/onboarding.html
+  - {ask: "What should a new engineer get done in their first week?", as: alice, expect: [engineering/onboarding.html], facts: [staging]}
+  - {ask: "For how long does a new hire have an onboarding buddy?", as: alice, expect: [engineering/onboarding.html], facts: ["60"]}
+  # ---- financials/q3-2026-results.md
+  - {ask: "What was our revenue in the third quarter of 2026?", as: alice, expect: [financials/q3-2026-results.md], facts: ["48.2"]}
+  - {ask: "What gross margin did we make in Q3?", as: alice, expect: [financials/q3-2026-results.md], facts: ["72.4"]}
+  - {ask: "What revenue are we guiding for Q4?", as: alice, expect: [financials/q3-2026-results.md], facts: [["51", "53"]]}
+  - {ask: "How much did cloud hosting cost us in Q3?", as: alice, expect: [financials/q3-2026-results.md], facts: ["6.1"]}
+  # ---- financials/vendor-spend.csv
+  - {ask: "Which vendor provides our observability tooling?", as: alice, expect: [financials/vendor-spend.csv], facts: [SearchPro]}
+  - {ask: "How much do we pay PayGate per year?", as: alice, expect: [financials/vendor-spend.csv], facts: [["3100000", "3.1", "3,100,000"]]}
+  # ---- financials/engineering-budget/fy27-engineering-budget.md
+  - {ask: "How many people will engineering have in FY27?", as: alice, expect: [financials/engineering-budget/fy27-engineering-budget.md], facts: ["102"]}
+  - {ask: "How much is set aside for GPUs for internal AI tools?", as: alice, expect: [financials/engineering-budget/fy27-engineering-budget.md], facts: ["4"]}
+  - {ask: "What is next year's infrastructure budget?", as: bob, expect: [financials/engineering-budget/fy27-engineering-budget.md], facts: ["27"]}
+  - {ask: "How much is engineering headcount growing?", as: carol, expect: [financials/engineering-budget/fy27-engineering-budget.md], facts: ["102"]}
+  # ---- hr/payroll/salary-bands-2026.md
+  - {ask: "What is the pay range for an L5 engineer?", as: alice, expect: [hr/payroll/salary-bands-2026.md], facts: [["150,000", "150000"], ["190,000", "190000"]]}
+  - {ask: "When do the salary bands get updated?", as: erin, expect: [hr/payroll/salary-bands-2026.md], facts: [January]}
+  # ---- hr/performance-reviews.md
+  - {ask: "How often do we have performance reviews?", as: alice, expect: [hr/performance-reviews.md], facts: [[twice, April]]}
+  - {ask: "Who decides whether someone gets promoted?", as: erin, expect: [hr/performance-reviews.md], facts: [committee]}
+  # ---- management/acquisition-plan.md
+  - {ask: "Which company are we planning to buy?", as: alice, expect: [management/acquisition-plan.md], facts: [Northwind]}
+  - {ask: "What's the most we would pay for the acquisition?", as: alice, expect: [management/acquisition-plan.md], facts: ["210"]}
+  # ---- the hard negatives' own questions
+  - {ask: "How far ahead do I need to book flights?", as: alice, expect: [general/travel-policy.md], facts: ["14"]}
+  - {ask: "What's the meal allowance on business trips?", as: dave, expect: [general/travel-policy.md], facts: ["60"]}
+  - {ask: "How much does the company match on retirement savings?", as: alice, expect: [general/benefits-2026.md], facts: ["4%"]}
+  - {ask: "Do we get any days off besides PTO?", as: dave, expect: [general/benefits-2026.md], facts: [[two, "2"]]}
+  - {ask: "What was revenue in the second quarter?", as: bob, expect: [financials/q2-2026-results.md], facts: ["41.6"]}
+  - {ask: "Why did search go down in August?", as: alice, expect: [engineering/runbooks/incident-2026-08-02.md], facts: [[failover, PgBouncer]]}
+  - {ask: "Can I release to production right before Christmas?", as: carol, expect: [engineering/release-process.md], facts: [[freeze, frozen]]}
+  - {ask: "How long does a change have to sit on staging before going live?", as: carol, expect: [engineering/release-process.md], facts: ["24"]}
+  - {ask: "How soon after the last interview do candidates hear back?", as: erin, expect: [hr/hiring-process.md], facts: ["48"]}
+  - {ask: "When is the next board meeting?", as: alice, expect: [management/board-meeting-2026-10.md], facts: ["15 January"]}
+  # ---- narrower views still find their documents
+  - {ask: "How much paid time off do I get?", as: dave, expect: [general/employee-handbook.md], facts: ["25"]}
+  - {ask: "How long do canary releases stay at 5% of traffic?", as: carol, expect: [engineering/architecture-overview.md], facts: ["30"]}
+
+  # ---- not answerable from the persona's permitted documents
+  - {ask: "What is the parental leave policy?", as: alice, answerable: false}
+  - {ask: "What is our share price target for 2027?", as: alice, answerable: false}
+  - {ask: "What is the salary band for an L5 engineer?", as: dave, answerable: false}
+  - {ask: "What did Q3 2026 revenue come in at?", as: carol, answerable: false}
+  - {ask: "Which company are we acquiring next year?", as: bob, answerable: false}
+  - {ask: "How long do canary releases stay at 5% of traffic?", as: bob, answerable: false}

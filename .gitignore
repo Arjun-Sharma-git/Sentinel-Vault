@@ -1,12 +1,51 @@
+# ---- Python ----------------------------------------------------------------------
 __pycache__/
+*.py[cod]
 .venv/
+venv/
+*.egg-info/
+build/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# ---- Node / frontend -------------------------------------------------------------
 node_modules/
 dist/
+.vite/
 .tanstack/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# ---- Secrets and local config (the *.example files are committed) ------------------
 .env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# ---- Model and tool caches ---------------------------------------------------------
+.cache/
+*.gguf
+*.safetensors
+
+# ---- Editors and OS ----------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Runtime output ------------------------------------------------------------------
 *.log
 # half-written uploads
 data/library/**/.upload-*
+# evaluation runs (summaries go in the README)
+backend/eval/results/

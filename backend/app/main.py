@@ -63,11 +63,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else None
     )
     logger.info(
-        "ready: authz=%s gate=%s llm=%s embeddings=%s",
+        "ready: authz=%s gate=%s llm=%s embeddings=%s reranker=%s",
         services.authz.name,
         services.gate.name,
         settings.llm_model if services.llm else "extractive",
         services.embedder.name,
+        services.retriever.reranker.name,
     )
     yield
     stop.set()
@@ -124,6 +125,7 @@ def create_app() -> FastAPI:
             "gate": services.gate.name,
             "llm": services.llm.model if services.llm else "extractive",
             "embeddings": services.embedder.name,
+            "reranker": services.retriever.reranker.name,
             "vectors": await services.vectors.count(),
         }
 

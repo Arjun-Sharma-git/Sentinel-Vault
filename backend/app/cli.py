@@ -8,6 +8,8 @@ uv run python -m app.cli sync-authz         push all grants to OpenFGA
 uv run python -m app.cli reindex --recreate rebuild every vector (after changing EMBEDDING_MODEL)
 uv run python -m app.cli download-laya      fetch the Laya gate model once (needs internet)
 uv run python -m app.cli download-docling   fetch Docling's PDF models once (the parser runs offline)
+uv run python -m app.cli download-reranker  fetch the configured reranker model once
+uv run python -m app.cli eval [--answers]   score retrieval (and answers) on eval/golden.yaml
 """
 
 from __future__ import annotations
@@ -191,6 +193,33 @@ def download_docling() -> None:
     print("Docling's models are cached; PDF parsing works offline from now on.")
 
 
+async def run_eval(rerankers: list[str], answers: bool) -> None:
+    from .config import BASE_DIR
+    from .evaluation import evaluate, render, save
+
+    services = await _services()
+    try:
+        report = await evaluate(services, rerankers, answers)
+    finally:
+        await services.close()
+    print(render(report))
+    print(f"\nfull report: {save(report, BASE_DIR / 'eval' / 'results')}")
+
+
+def download_reranker() -> None:
+    from .config import get_settings
+    from .rerank import make_reranker
+
+    os.environ["HF_HUB_OFFLINE"] = "0"
+    settings = get_settings()
+    reranker = make_reranker(settings.reranker, settings.reranker_model)
+    if not reranker.enabled:
+        print("RERANKER=off; nothing to download.")
+        return
+    reranker.load()  # type: ignore[attr-defined]
+    print(f"{reranker.name} is cached.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="vault", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -199,14 +228,32 @@ def main() -> None:
     admin = sub.add_parser("create-admin")
     admin.add_argument("email")
     admin.add_argument("name")
-    for name in ("seed-demo", "scan", "index", "sync-authz", "download-laya", "download-docling"):
+    for name in (
+        "seed-demo",
+        "scan",
+        "index",
+        "sync-authz",
+        "download-laya",
+        "download-docling",
+        "download-reranker",
+    ):
         sub.add_parser(name)
+    evaluation = sub.add_parser("eval", help="score retrieval (and answers) on eval/golden.yaml")
+    evaluation.add_argument(
+        "--rerankers", default="off,cross-encoder", help="comma-separated: off, cross-encoder, qwen"
+    )
+    evaluation.add_argument("--answers", action="store_true", help="also generate and score answers (slow)")
     rebuild = sub.add_parser("reindex")
     rebuild.add_argument("--recreate", action="store_true", help="drop and rebuild the vector collection")
     args = parser.parse_args()
 
-    if args.command in ("download-laya", "download-docling"):
-        {"download-laya": download_laya, "download-docling": download_docling}[args.command]()
+    downloads = {
+        "download-laya": download_laya,
+        "download-docling": download_docling,
+        "download-reranker": download_reranker,
+    }
+    if args.command in downloads:
+        downloads[args.command]()
         return
     commands = {
         "create-admin": lambda: create_admin(args.email, args.name),
@@ -215,6 +262,7 @@ def main() -> None:
         "index": index,
         "sync-authz": sync_authz,
         "reindex": lambda: reindex(args.recreate),
+        "eval": lambda: run_eval([k.strip() for k in args.rerankers.split(",") if k.strip()], args.answers),
     }
 
     async def run() -> None:

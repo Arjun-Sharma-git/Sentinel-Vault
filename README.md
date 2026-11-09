@@ -38,7 +38,7 @@ flowchart TB
     sessions["Sessions + CSRF<br/>HttpOnly cookie, Argon2id"]
     pipeline["Question pipeline<br/>gate → access → retrieve → generate → verify → audit"]
     gate["Laya gate<br/>(PyTorch, in-process)"]
-    retriever["Retriever<br/>dense + full-text, RRF, re-check"]
+    retriever["Retriever<br/>dense + full-text, RRF, re-check, rerank"]
     authz["Authz layer<br/>OpenFGA client · SQL oracle"]
     worker["Indexing worker<br/>scan · Docling · chunk · embed"]
   end
@@ -101,7 +101,8 @@ flowchart LR
   D --> F[RRF fusion]
   T --> F
   F --> R[Re-check folders with OpenFGA<br/>+ only indexed documents]
-  R --> L[Local LLM, datamarked sources<br/>cite S1..Sn or NO_ANSWER]
+  R --> RR[Rerank the survivors<br/>cross-encoder, order only]
+  RR --> L[Local LLM, datamarked sources<br/>cite S1..Sn or NO_ANSWER]
   L --> V[Verify: only cited sources<br/>that were sent survive]
   V --> AU[Audit log]
 ```
@@ -114,6 +115,8 @@ flowchart LR
    (pgvector's HNSW filters after the scan and can silently return fewer).
 2. **Again before the model.** The final passages' folders are batch-checked with OpenFGA and the
    documents must be live, so nothing slips through a race with a revocation.
+   The reranker runs after this check, so it only ever reads passages the user may see; it changes
+   their order, never the set.
 3. **After the model.** The answer may only cite sources that were sent; anything else is removed,
    and an answer without a valid citation is not shown as an answer.
 4. **Never in the prompt.** The LLM is not asked to enforce access. Retrieved text is *datamarked*
@@ -150,7 +153,8 @@ The Laya gate model is shared with Sentinel's Hugging Face cache; if it isn't do
 falls back to a keyword heuristic until you run `uv run python -m app.cli download-laya`.
 
 Files are parsed in a sandboxed process with no network, so Docling's PDF models must be cached
-once: `uv run python -m app.cli download-docling`. Markdown, text, CSV, JSON, HTML and Office files
+once: `uv run python -m app.cli download-docling`. The reranker's model is fetched with
+`uv run python -m app.cli download-reranker`; until it is, results keep their fused order. Markdown, text, CSV, JSON, HTML and Office files
 don't need them.
 
 ### Your own documents
@@ -171,6 +175,7 @@ file **moved** to another folder keeps its vectors; only its folder tag changes.
 | Answer model | `qwen3.5:4b`, `LLM_CONTEXT_TOKENS=4096` | `qwen3.5:9b` or `gpt-oss:20b`, `16384` |
 | Ollama | CPU | ROCm, on the host or `docker compose --profile rocm up -d` |
 | Laya and Docling | CPU PyTorch | ROCm PyTorch, `TORCH_DEVICE=rocm` |
+| Reranker | `cross-encoder` (MiniLM-L6, ~130 ms) | `qwen` (Qwen3-Reranker-0.6B, on the GPU) |
 | Speed | ~40–50 s per answer, mostly the first model load | a few seconds |
 | Indexing | fine for small libraries | do bulk indexing here (PDF OCR runs on the GPU) |
 
@@ -204,7 +209,7 @@ documents because she is in `leadership` (a test removes her and checks).
 
 ```bash
 docker compose up -d && cd backend
-uv run pytest                    # 72 tests on the real Postgres + OpenFGA (isolated test DB and store)
+uv run pytest                    # 76 tests on the real Postgres + OpenFGA (isolated test DB and store)
 TEST_AUTHZ=sql uv run pytest     # the same suite on the built-in SQL authorization backend
 ```
 
@@ -224,6 +229,36 @@ TEST_AUTHZ=sql uv run pytest     # the same suite on the built-in SQL authorizat
 - The suite was checked against a sabotaged filter (search all folders, skip the re-check): the
   canary, revocation and membership tests fail as they should. Disabling the OpenFGA freshness
   check makes the outage-revocation test fail the same way.
+
+## Evaluation
+
+`backend/eval/golden.yaml` holds 53 questions, phrased as employees would ask them, with the
+documents that answer them and the facts a correct answer must contain. Five are not answerable
+for the persona asking, for example a question about salaries asked by the intern, and must get
+"I couldn't find this". The demo library includes hard negatives: a Q2 report next to Q3, two
+postmortems, and a benefits page that mentions extra days off. Run the eval against the live
+services:
+
+```bash
+cd backend
+uv run python -m app.cli eval                                  # retrieval: off vs cross-encoder
+uv run python -m app.cli eval --rerankers off,cross-encoder,qwen --answers   # + answers (slow on CPU)
+```
+
+Retrieval on the laptop (Intel Core 5 120U, CPU only, top 6 passages):
+
+| Reranker | Right document first | In top 3 | MRR | Added per question |
+|---|---|---|---|---|
+| none (RRF only) | 89.4% | 100% | 0.943 | – |
+| `cross-encoder` (MiniLM-L6) | 93.6% | 100% | 0.961 | ~130 ms |
+| `qwen` (Qwen3-Reranker-0.6B) | 95.7% | 100% | 0.975 | ~9 s on this CPU |
+
+The reranker fixes the order, not recall: the right document was already in the top 3 every
+time. Order still matters, because a small model leans on its first sources. MiniLM is the laptop
+default. Qwen is the desktop default, where it runs on the GPU.
+
+Answer scores (`--answers`: facts present, correct document cited, correct refusals) still need a
+run on the desktop. On the 16 GB laptop, the run alongside the API ran out of memory.
 
 ## Security notes
 
@@ -283,11 +318,13 @@ filesystem isolation, which needs a separate worker container.
 
 ### P1: answer quality
 
-4. **No reranker.** RRF output goes straight to the model. Adding Qwen3-Reranker-0.6B over the
-   top 30 candidates is the cheapest quality gain available.
-5. **No evaluation set.** Leak tests are thorough, but nothing measures retrieval recall@k,
-   faithfulness or the NO_ANSWER rate. Fix: a small golden Q&A set per folder, scored in CI
-   (DeepEval or Ragas), plus a promptfoo red-team suite against the gate.
+4. ~~No reranker~~ and ~~no evaluation set~~: done, see [Evaluation](#evaluation). What's left:
+   the golden set is 53 questions over a small demo library, so it can tell rerankers apart
+   but is not a benchmark. Grow it from real questions (the audit log has them), score
+   faithfulness with an LLM judge (DeepEval or Ragas), and add a promptfoo red-team suite
+   against the gate.
+5. **The answer order isn't the user's order of trust.** Nothing prefers current documents over
+   superseded ones (e.g. last year's handbook). Rank by document date or status metadata.
 6. **Keyword search lives in Postgres.** This works, but Qdrant 1.20's native BM25 sparse
    vectors would put both retrieval legs in one filtered query and one index.
 7. **The model's real context is small** (4,096 tokens on the laptop profile). Long tables lose

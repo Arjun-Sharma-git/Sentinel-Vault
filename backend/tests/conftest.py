@@ -35,6 +35,7 @@ os.environ.update(
         "EMBEDDING_BACKEND": "hash",
         "LLM_BACKEND": "extractive",
         "GATE_ENGINE": "heuristic",
+        "RERANKER": "off",  # tests use a fake reranker where they need one
         "AUTHZ_BACKEND": os.environ.get("TEST_AUTHZ", "openfga"),
         "OPENFGA_STORE_NAME": f"vault-test-{uuid.uuid4().hex[:8]}",
         "LIBRARY_DIR": str(TEST_LIBRARY),

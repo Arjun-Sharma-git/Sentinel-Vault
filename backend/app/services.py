@@ -16,6 +16,7 @@ from .embeddings import Embedder, HashEmbedder, OllamaEmbedder
 from .gate import PromptGate, build_gate
 from .ingest.indexer import Indexer
 from .ingest.sandbox import IsolatedParser, ParseLimits
+from .rerank import build_reranker
 from .retrieval import Retriever
 from .vectorstore import VectorStore
 
@@ -91,7 +92,16 @@ async def build_services(
             settings.llm_model,
         )
 
-    retriever = Retriever(authz, vectors, embedder, settings.retrieval_candidates, settings.retrieval_top_k)
+    reranker = build_reranker(settings.reranker, settings.reranker_model, device.torch_device)
+    retriever = Retriever(
+        authz,
+        vectors,
+        embedder,
+        settings.retrieval_candidates,
+        settings.retrieval_top_k,
+        reranker,
+        settings.rerank_candidates,
+    )
     parser = IsolatedParser(
         ParseLimits.from_settings(settings), device.torch_device, settings.parse_network_isolation
     )

@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     chunk_max_tokens: int = 400
     retrieval_candidates: int = 30  # per search leg (dense and full-text)
     retrieval_top_k: int = 6  # chunks given to the model
+    # Reorder the fused candidates with a cross-encoder before taking the top k (rerank.py).
+    # cross-encoder: MiniLM-L6, fast on CPU (laptop). qwen: Qwen3-Reranker-0.6B, for a GPU.
+    reranker: Literal["off", "cross-encoder", "qwen"] = "cross-encoder"
+    reranker_model: str = ""  # empty: the default model for the kind above
+    rerank_candidates: int = 12  # how many fused candidates are rescored
 
     # ---- Sessions ---------------------------------------------------------------------
     session_hours: int = 8

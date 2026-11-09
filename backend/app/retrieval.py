@@ -7,6 +7,9 @@
   3. Reciprocal Rank Fusion of the two rankings (k = 60).
   4. Before anything reaches the model: load the chunks from Postgres, keep only indexed
      documents, and re-check every remaining folder against the authorization backend.
+  5. Optionally rerank the survivors with a cross-encoder (rerank.py), which reads question
+     and passage together and fixes the order of the top few. It runs after step 4, so it
+     never reads a passage the user may not see.
 
 A chunk from a folder the user can't see is never scored, never fused, never sent to the
 model and never cited.
@@ -24,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .authz import Authz
 from .embeddings import Embedder
 from .models import Chunk, Document, Folder
+from .rerank import NoReranker, Reranker
 from .vectorstore import VectorStore
 
 RRF_K = 60
@@ -42,6 +46,10 @@ class Passage:
     text: str
     score: float
     via: list[str] = field(default_factory=list)  # "dense", "full-text"
+    rerank_score: float | None = None  # cross-encoder relevance in [0, 1], when reranked
+
+    def for_rerank(self) -> str:
+        return f"{self.document_title}\n{self.heading}\n{self.text}".strip()
 
 
 @dataclass
@@ -93,6 +101,8 @@ class Retriever:
     embedder: Embedder
     candidates: int = 30
     top_k: int = 6
+    reranker: Reranker = field(default_factory=NoReranker)
+    rerank_candidates: int = 12
 
     async def retrieve(self, db: AsyncSession, user_id: str, question: str) -> RetrievalResult:
         timings: dict[str, float] = {}
@@ -115,11 +125,21 @@ class Retriever:
         ranked = sorted(fused, key=lambda cid: fused[cid][0], reverse=True)
 
         start = time.perf_counter()
-        passages = await self._load(db, ranked[: self.top_k * 3], fused)
+        load = max(self.top_k * 3, self.rerank_candidates if self.reranker.enabled else 0)
+        passages = await self._load(db, ranked[:load], fused)
         # Second check, on exactly the folders that are about to reach the model.
         confirmed = await self.authz.check_folders(user_id, {p.folder_id for p in passages}, "viewer")
         kept = [p for p in passages if p.folder_id in confirmed and p.folder_id in allowed]
         timings["recheck_ms"] = _ms(start)
+
+        if self.reranker.enabled and len(kept) > 1:
+            start = time.perf_counter()
+            kept = kept[: self.rerank_candidates]  # only permitted passages reach the reranker
+            scores = await self.reranker.score(question, [p.for_rerank() for p in kept])
+            for passage, score in zip(kept, scores, strict=True):
+                passage.rerank_score = round(score, 4)
+            kept.sort(key=lambda p: p.rerank_score or 0.0, reverse=True)  # stable: RRF breaks ties
+            timings["rerank_ms"] = _ms(start)
         return RetrievalResult(
             kept[: self.top_k],
             allowed,
