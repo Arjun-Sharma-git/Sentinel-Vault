@@ -270,6 +270,9 @@ numbers; the gate is measured separately below.
 
 ### Prompt gate (Laya)
 
+What was wrong with the gate on Hindi, what changed, the results and the plan from here are in
+[docs/gate-hardening.md](docs/gate-hardening.md).
+
 Laya routes each prompt by language: English to its `english` checkpoint, Hindi and other non-Latin
 scripts to `multilingual`, which gets its own thresholds. The English checkpoint alone is near random
 on Hindi: in a first probe it let every Hindi injection through and scored ordinary Hindi
