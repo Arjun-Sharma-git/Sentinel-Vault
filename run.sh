@@ -38,6 +38,15 @@ fi
 say "Starting Postgres, OpenFGA and Qdrant"
 docker compose up -d --wait postgres openfga qdrant
 
+# The models the API will use: the shell's value if set, else backend/.env, else the defaults.
+env_value() {
+  [[ -f backend/.env ]] || return 0
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" backend/.env | tail -1 \
+    | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^["'"'"'](.*)["'"'"']$/\1/'
+}
+LLM_MODEL="${LLM_MODEL:-$(env_value LLM_MODEL)}"
+EMBEDDING_MODEL="${EMBEDDING_MODEL:-$(env_value EMBEDDING_MODEL)}"
+
 say "Checking Ollama models"
 for model in "${LLM_MODEL:-qwen3.5:4b}" "${EMBEDDING_MODEL:-qwen3-embedding:0.6b}"; do
   ollama list | awk '{print $1}' | grep -qx "$model" || { say "Pulling $model"; ollama pull "$model"; }
