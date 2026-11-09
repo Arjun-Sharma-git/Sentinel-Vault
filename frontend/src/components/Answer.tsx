@@ -134,7 +134,7 @@ export function AnswerCard({ turn, sources }: { turn: Turn; sources?: SourceInfo
       ) : (
         <Card className="p-6">
           {turn.text ? (
-            <Markdown text={turn.text} cite={citeChip(cited)} className="select-text" />
+            <Markdown text={turn.text} cite={citeChip(cited)} className="select-text" done={!!final} />
           ) : (
             <div className="space-y-3">
               <div className="h-3 w-3/4 animate-pulse rounded-full bg-line" />
