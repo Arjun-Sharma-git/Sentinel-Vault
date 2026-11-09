@@ -12,6 +12,7 @@ guarantee: thresholds fitted this way are only as good as the prompts behind the
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import asdict, dataclass
@@ -22,7 +23,7 @@ import yaml
 
 from .config import BASE_DIR
 from .evaluation import load_questions
-from .gate import GateEngine, GateScores, Thresholds
+from .gate import GateEngine, GateScores, PromptGate, SecondOpinionEngine, Thresholds
 
 DATA = BASE_DIR / "eval" / "gate_hindi.yaml"
 GRID = [round(0.30 + 0.01 * i, 2) for i in range(70)]  # 0.30 .. 0.99
@@ -36,6 +37,8 @@ class Prompt:
     label: str  # benign | injection | exfiltration
     split: str  # calibration | held-out
     scores: GateScores | None = None
+    final: bool | None = None  # blocked by the whole gate, second stage included
+    second: dict[str, Any] | None = None
 
     @property
     def attack(self) -> bool:
@@ -83,7 +86,14 @@ def fit(prompts: list[Prompt], budget: float) -> Thresholds:
     return choice
 
 
-def evaluate_gate(engine: GateEngine, budget: float, default: Thresholds) -> dict[str, Any]:
+def evaluate_gate(
+    engine: GateEngine,
+    budget: float,
+    default: Thresholds,
+    second: SecondOpinionEngine | None = None,
+    scope: str = "review",
+    review_threshold: float | None = 0.5,
+) -> dict[str, Any]:
     prompts = load_prompts()
     start = time.perf_counter()
     for p in prompts:
@@ -102,13 +112,13 @@ def evaluate_gate(engine: GateEngine, budget: float, default: Thresholds) -> dic
         fitted[profile] = fit(calibration, budget) if enough else default
         report.setdefault("thresholds", {})[profile] = {**asdict(fitted[profile]), "fitted": enough}
 
-    def by_set(t_for) -> dict[str, Any]:
+    def by_set(is_blocked) -> dict[str, Any]:
         out = {}
         for set_name in ("hindi", "hinglish", "english"):
             for split in ("calibration", "held-out"):
                 rows = [p for p in prompts if p.set == set_name and p.split == split]
-                wrong = [p for p in rows if not p.attack and blocked(p.scores, t_for(p))]
-                caught = [p for p in rows if p.attack and blocked(p.scores, t_for(p))]
+                wrong = [p for p in rows if not p.attack and is_blocked(p)]
+                caught = [p for p in rows if p.attack and is_blocked(p)]
                 out[f"{set_name}/{split}"] = {
                     "ordinary": sum(not p.attack for p in rows),
                     "ordinary_blocked": len(wrong),
@@ -119,13 +129,55 @@ def evaluate_gate(engine: GateEngine, budget: float, default: Thresholds) -> dic
                 }
         return out
 
-    report["before"] = by_set(lambda p: default)
-    report["after"] = by_set(lambda p: fitted[p.scores.profile])
+    report["before"] = by_set(lambda p: blocked(p.scores, default))
+    report["after"] = by_set(lambda p: blocked(p.scores, fitted[p.scores.profile]))
+    if second is not None:
+        # The whole gate as it runs in the app: fitted thresholds, then the second stage.
+        gate = PromptGate(
+            engine,
+            default.injection,
+            default.exfiltration,
+            {k: v for k, v in fitted.items() if k != "default"},
+            review_threshold,
+            second,
+            scope,  # type: ignore[arg-type]
+        )
+
+        async def run() -> float:
+            start = time.perf_counter()
+            for p in prompts:
+                verdict = await gate.check(p.text)
+                p.final, p.second = not verdict.allowed, verdict.second_stage
+            return time.perf_counter() - start
+
+        seconds = asyncio.run(run())
+        looked = [p for p in prompts if p.second is not None]
+        report["second_stage"] = {
+            "scope": scope,
+            "share_of_hindi_prompts": round(
+                sum(1 for p in looked if p.set == "hindi") / max(1, sum(p.set == "hindi" for p in prompts)), 3
+            ),
+            "looked_at": len(looked),
+            "ms_mean_when_used": round(
+                sum(p.second.get("latency_ms", 0) for p in looked) / max(1, len(looked)),
+                1,  # type: ignore[union-attr]
+            ),
+            "seconds_total": round(seconds, 1),
+        }
+        report["cascade"] = by_set(lambda p: bool(p.final))
     report["routes"] = {
         s: sorted({p.scores.profile for p in prompts if p.set == s}) for s in ("hindi", "hinglish", "english")
     }
     report["scores"] = [
-        {"text": p.text, "set": p.set, "label": p.label, "split": p.split, **asdict(p.scores)}
+        {
+            "text": p.text,
+            "set": p.set,
+            "label": p.label,
+            "split": p.split,
+            **asdict(p.scores),
+            "blocked": p.final,
+            "second_stage": p.second,
+        }
         for p in prompts
     ]
     return report
@@ -136,12 +188,21 @@ def render_gate(report: dict[str, Any]) -> str:
     for profile, t in report["thresholds"].items():
         how = "fitted on the calibration half" if t["fitted"] else "default (too few prompts here to fit)"
         lines.append(f"  {profile}: injection {t['injection']:.2f}, export {t['exfiltration']:.2f} ({how})")
-    for stage in ("before", "after"):
+    if "second_stage" in report:
+        s = report["second_stage"]
+        lines.append(
+            f"  second stage ({s['scope']}): looked at {s['looked_at']} prompts, "
+            f"{s['share_of_hindi_prompts']:.0%} of Hindi ones, {s['ms_mean_when_used']} ms each"
+        )
+    for stage in ("before", "after", "cascade"):
+        if stage not in report:
+            continue
         lines.append(f"\n{stage}: | set/split | ordinary blocked | attacks blocked |")
         for key, r in report[stage].items():
             ordinary = f"{r['ordinary_blocked']}/{r['ordinary']}"
             lines.append(f"  | {key} | {ordinary} | {r['attacks_blocked']}/{r['attacks']} |")
-    held = {k: v for k, v in report["after"].items() if k.endswith("held-out")}
+    final = report.get("cascade", report["after"])
+    held = {k: v for k, v in final.items() if k.endswith("held-out")}
     for key, r in held.items():
         for text in r["wrongly_blocked"]:
             lines.append(f"  wrongly blocked [{key}]: {text}")

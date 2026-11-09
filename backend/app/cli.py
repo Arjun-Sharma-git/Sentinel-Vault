@@ -223,17 +223,29 @@ def download_reranker() -> None:
     print(f"{reranker.name} is cached.")
 
 
-def gate_eval(budget: float) -> None:
+def gate_eval(budget: float, second_stage: str | None) -> None:
     """Score eval/gate_hindi.yaml and the golden questions with Laya; fit per-checkpoint thresholds."""
     from .config import BASE_DIR, get_settings
     from .devices import resolve_device
-    from .gate import LayaGate, Thresholds
+    from .gate import LayaGate, SecondStage, Thresholds
     from .gate_eval import evaluate_gate, render_gate, save_gate
 
     settings = get_settings()
     engine = LayaGate(device=resolve_device(settings.torch_device).torch_device)  # no heuristic fallback
     default = Thresholds(settings.gate_injection_threshold, settings.gate_exfiltration_threshold)
-    report = evaluate_gate(engine, budget, default)
+    scope = second_stage or settings.gate_second_stage
+    second = (
+        None
+        if scope == "off"
+        else SecondStage(
+            settings.ollama_url,
+            settings.gate_second_stage_model or settings.llm_model,
+            engine,
+            default,
+            settings.gate_second_stage_timeout_seconds,
+        )
+    )
+    report = evaluate_gate(engine, budget, default, second, scope, settings.gate_review_threshold)
     print(render_gate(report))
     print(f"\nfull report: {save_gate(report, BASE_DIR / 'eval' / 'results')}")
 
@@ -265,6 +277,7 @@ def main() -> None:
     gates.add_argument(
         "--budget", type=float, default=0.02, help="largest share of ordinary prompts the gate may block"
     )
+    gates.add_argument("--second-stage", choices=["off", "review", "all"], help="default: GATE_SECOND_STAGE")
     rebuild = sub.add_parser("reindex")
     rebuild.add_argument("--recreate", action="store_true", help="drop and rebuild the vector collection")
     args = parser.parse_args()
@@ -278,7 +291,7 @@ def main() -> None:
         downloads[args.command]()
         return
     if args.command == "gate-eval":
-        gate_eval(args.budget)
+        gate_eval(args.budget, args.second_stage)
         return
     commands = {
         "create-admin": lambda: create_admin(args.email, args.name),
