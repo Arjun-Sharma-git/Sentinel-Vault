@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -19,6 +20,28 @@ logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
 IDLE_SECONDS = 1.0
+# A job is marked running when claimed. If its worker dies (crash, kill, power cut) nothing else
+# would ever touch it, so jobs running this long are put back: well past the parser's 5-minute
+# timeout plus embedding. One that keeps taking its worker down fails after MAX_ATTEMPTS.
+STALE_AFTER = timedelta(minutes=20)
+
+
+async def requeue_stale(db: AsyncSession, older_than: timedelta = STALE_AFTER) -> int:
+    """Put jobs whose worker went away back in the queue (or fail them). Returns how many."""
+    cutoff = datetime.now(UTC) - older_than
+    stale = (
+        await db.scalars(
+            select(Job)
+            .where(Job.status == "running", Job.updated_at < cutoff)
+            .with_for_update(skip_locked=True)
+        )
+    ).all()
+    for job in stale:
+        job.status = "queued" if job.attempts < MAX_ATTEMPTS else "failed"
+        job.last_error = "worker went away while running this job"
+        logger.warning("job %s was running since %s; now %s", job.id, job.updated_at, job.status)
+    await db.commit()
+    return len(stale)
 
 
 async def claim_job(db: AsyncSession) -> Job | None:
@@ -51,6 +74,8 @@ async def run_job(db: AsyncSession, job: Job, indexer: Indexer) -> None:
 
 async def drain(sessions: async_sessionmaker[AsyncSession], indexer: Indexer) -> int:
     """Run queued jobs until none are left. Returns how many ran."""
+    async with sessions() as db:
+        await requeue_stale(db)
     ran = 0
     while True:
         async with sessions() as db:
