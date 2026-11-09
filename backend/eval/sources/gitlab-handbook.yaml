@@ -1,0 +1,68 @@
+# Eval questions for the gitlab-handbook source:
+#   uv run python -m app.cli source eval gitlab-handbook [--rerankers off,qwen] [--answers]
+#
+# Same format as eval/golden.yaml. Each answer's facts were checked against the page in `expect`
+# (handbook commit 47836b4, November 2026); refresh them when a sync changes those pages.
+# Personas are the demo users; the source's grants decide what each may read:
+#   dave   everyone            general sections only
+#   bob    everyone, finance   + finance, entity
+#   erin   everyone, hr        + people-group, people-policies, total-rewards, hiring, ...
+#   carol  everyone, engineering  + engineering, security, product-development
+#   alice  everyone, leadership   everything, including legal, leadership, ceo, board
+questions:
+  # ---- finance (bob)
+  - {ask: "How much can I claim per day for meals while travelling on company business?", as: bob, expect: [gitlab-handbook/finance/expenses.md], facts: ["120"]}
+  - {ask: "What is the nightly limit for a hotel room, and how far ahead do I have to book?", as: bob, expect: [gitlab-handbook/finance/expenses.md], facts: ["300", "7"]}
+  - {ask: "Up to what amount can a single item be expensed through Navan?", as: bob, expect: [gitlab-handbook/finance/expenses.md], facts: [["5,000", "5000"]]}
+  - {ask: "How old can an expense be before it is no longer reimbursed without my manager's approval?", as: bob, expect: [gitlab-handbook/finance/expenses.md], facts: ["90"]}
+  - {ask: "Above what amount do US team members have to submit a receipt?", as: bob, expect: [gitlab-handbook/finance/expenses.md], facts: ["50"]}
+  - {ask: "I paid for a year of internet upfront. How do I expense it?", as: bob, expect: [gitlab-handbook/finance/expenses.md], facts: [[month, monthly, "12"]]}
+
+  # ---- people (erin)
+  - {ask: "What kind of paid time off policy does GitLab have?", as: erin, expect: [gitlab-handbook/people-group/time-off-and-absence/time-off-types.md], facts: [[Flexible, flexible]]}
+  - {ask: "How much notice should I give my manager before taking time off?", as: erin, expect: [gitlab-handbook/people-group/time-off-and-absence/time-off-types.md], facts: [[twice, double]]}
+  - {ask: "For how long does a referral I submit count as my referral?", as: erin, expect: [gitlab-handbook/hiring/referral-process.md], facts: [["6 months", "six months"]]}
+  - {ask: "How long do I need to have been in my current role before applying for an internal position?", as: erin, expect: [gitlab-handbook/hiring/talent-acquisition-framework/internal-hiring-process.md], facts: [["6 months", "six months"]]}
+  - {ask: "In talent assessments, roughly what share of team members are expected to be rated Developing?", as: erin, expect: [gitlab-handbook/people-group/talent-assessment.md], facts: ["10%"]}
+
+  # ---- leadership only (alice)
+  - {ask: "What is the most a team member may give in gifts per person per calendar year?", as: alice, expect: [gitlab-handbook/legal/policies/gifts-contributions.md], facts: ["75"]}
+  - {ask: "What is the maximum value of a single prize in a UX research prize draw?", as: alice, expect: [gitlab-handbook/legal/process-for-ux-research-prize-draws/index.md], facts: ["600"]}
+  - {ask: "How often should managers hold an engagement check-in with each direct report?", as: alice, expect: [gitlab-handbook/leadership/1-1/index.md], facts: [["6 months", "six months"]]}
+  - {ask: "How far ahead of a 1-1 should the agenda be filled in?", as: alice, expect: [gitlab-handbook/leadership/1-1/index.md], facts: ["24"]}
+
+  # ---- engineering (carol)
+  - {ask: "How quickly does the Sec on-call engineer have to acknowledge a page?", as: carol, expect: [gitlab-handbook/engineering/development/sec/oncall/faq.md, gitlab-handbook/engineering/development/sec/oncall/communication-and-culture.md, gitlab-handbook/security/security-operations/secops-oncall.md], facts: ["15"]}
+  - {ask: "How often at most is anyone on call in the Sec on-call rotation?", as: carol, expect: [gitlab-handbook/engineering/development/sec/oncall/joining-and-leaving-rotation.md, gitlab-handbook/engineering/development/sec/oncall/measuring-success.md, gitlab-handbook/engineering/development/sec/oncall/rotation-leader.md], facts: [["4 weeks", "four weeks"]]}
+  - {ask: "What are the time-to-remediate SLAs for vulnerabilities?", as: carol, expect: [gitlab-handbook/security/product-security/vulnerability-management/sla.md], facts: ["30", "90", "180"]}
+
+  # ---- everyone (dave)
+  - {ask: "After how many days is Slack message history lost?", as: dave, expect: [gitlab-handbook/communication/index.md], facts: ["90"]}
+  - {ask: "Does GitLab prefer synchronous or asynchronous communication?", as: dave, expect: [gitlab-handbook/communication/index.md], facts: [[asynchronous, Asynchronous, async]]}
+  - {ask: "How far ahead should I announce that a meeting has a pre-recorded video?", as: dave, expect: [gitlab-handbook/communication/index.md], facts: ["24"]}
+  - {ask: "How should monetary amounts be written, for example nineteen dollars ninety?", as: dave, expect: [gitlab-handbook/communication/index.md], facts: ["19.90"]}
+  - {ask: "How long before a field event does the event staffing list close?", as: dave, expect: [gitlab-handbook/marketing/events/index.md], facts: [["2 weeks", "two weeks"]]}
+  - {ask: "How long after an event are people still marked Registered switched to No Show?", as: dave, expect: [gitlab-handbook/marketing/events/index.md], facts: ["12"]}
+  - {ask: "How far ahead of the offsite does the CEO share a suggested agenda?", as: dave, expect: [gitlab-handbook/company/offsite/index.md], facts: [["3 weeks", "three weeks"]]}
+  - {ask: "How often should a support training module be reviewed?", as: dave, expect: [gitlab-handbook/support/training/training_module_maintainer.md], facts: [["6 months", "six months"]]}
+  - {ask: "In an account deletion request, how long do we wait for the user to respond before marking it an exception?", as: dave, expect: [gitlab-handbook/support/workflows/account_deletion_access_request_workflows.md], facts: ["7"]}
+  - {ask: "For the System Usability Scale survey, who counts as an experienced user?", as: dave, expect: [gitlab-handbook/product/ux/performance-indicators/system-usability-scale/index.md], facts: ["180"]}
+  - {ask: "How long before the Quote Start Date can a new business opportunity be closed won?", as: dave, expect: [gitlab-handbook/sales/field-operations/order-processing.md], facts: ["30"]}
+
+  # ---- Hindi (answers may use either digit script)
+  - {ask: "Slack संदेशों का इतिहास कितने दिनों के बाद खो जाता है?", as: dave, expect: [gitlab-handbook/communication/index.md], facts: [["90", "९०"]]}
+  - {ask: "कंपनी के काम से यात्रा के दौरान भोजन के लिए प्रतिदिन कितना दावा किया जा सकता है?", as: bob, expect: [gitlab-handbook/finance/expenses.md], facts: [["120", "१२०"]]}
+  - {ask: "छुट्टी लेने से पहले मैनेजर को कितना नोटिस देना चाहिए?", as: erin, expect: [gitlab-handbook/people-group/time-off-and-absence/time-off-types.md], facts: [[twice, double, दोगुन, दुगुन, "दो गुना"]]}
+  - {ask: "Sec टीम के ऑन-कॉल इंजीनियर को पेज कितनी जल्दी स्वीकार करना होता है?", as: carol, expect: [gitlab-handbook/engineering/development/sec/oncall/faq.md, gitlab-handbook/engineering/development/sec/oncall/communication-and-culture.md, gitlab-handbook/security/security-operations/secops-oncall.md], facts: [["15", "१५"]]}
+
+  # ---- not answerable: the answer sits only in a section this persona may not read. Checked
+  # by searching everything the persona can read (handbook sections and the demo folders): a
+  # question whose topic also appears in a readable page has a legitimate other answer (the
+  # demo company's own meal allowance, a marketing page's speaker-gift limit, an analytics page
+  # that also mentions the $5,000 Navan card limit) and doesn't belong here.
+  - {ask: "How often should managers hold an engagement check-in with each direct report?", as: dave, answerable: false}
+  - {ask: "In talent assessments, roughly what share of team members are expected to be rated Developing?", as: carol, answerable: false}
+  - {ask: "How long do I need to have been in my current role before applying for an internal position?", as: bob, answerable: false}
+  - {ask: "How often at most is anyone on call in the Sec on-call rotation?", as: erin, answerable: false}
+  - {ask: "What are the time-to-remediate SLAs for vulnerabilities?", as: bob, answerable: false}
+  - {ask: "How long do I need to have been in my current role before applying for an internal position?", as: carol, answerable: false}
