@@ -121,5 +121,9 @@ export type AskEvent =
       reasons?: string[]
       no_answer?: boolean
       grounded?: boolean
+      unsupported?: Unsupported[]
+      faithfulness?: number | null
     }
   | { type: 'done'; request_id: string; outcome: 'answered' | 'denied'; latency_ms: number }
+
+export type Unsupported = { kind: 'sentence' | 'node'; text: string }

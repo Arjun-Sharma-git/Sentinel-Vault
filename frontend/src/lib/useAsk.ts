@@ -3,7 +3,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { ask } from './api'
-import type { AskEvent, Citation, StepEvent, StepId } from './types'
+import type { AskEvent, Citation, StepEvent, StepId, Unsupported } from './types'
 
 export type Turn = {
   question: string
@@ -11,7 +11,15 @@ export type Turn = {
   requestId?: string
   steps: Partial<Record<StepId, StepEvent>>
   text: string // streamed answer text; replaced by the verified text at the end
-  final?: { allowed: boolean; citations: Citation[]; reasons?: string[]; noAnswer?: boolean; grounded?: boolean }
+  final?: {
+    allowed: boolean
+    citations: Citation[]
+    reasons?: string[]
+    noAnswer?: boolean
+    grounded?: boolean
+    unsupported?: Unsupported[] // claims the grounding check found no support for
+    faithfulness?: number | null
+  }
   done?: { outcome: string; latencyMs: number }
   error?: string
 }
@@ -36,6 +44,8 @@ function apply(turn: Turn, event: AskEvent): Turn {
           reasons: event.reasons,
           noAnswer: event.no_answer,
           grounded: event.grounded,
+          unsupported: event.unsupported,
+          faithfulness: event.faithfulness,
         },
       }
     case 'done':

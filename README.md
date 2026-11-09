@@ -358,6 +358,27 @@ set refuses all 8 of its unanswerable questions again.
 The eval calls retrieval and the answer model directly, so the prompt gate is not part of these
 numbers; the gate is measured separately below.
 
+### Claim check (faithfulness)
+
+Citation checking only proves that an `[S2]` points at a passage that was sent. The claim check
+(`app/grounding.py`) checks the content: after the answer is written, every cited sentence and
+every diagram box is judged against the passages it cites, in one extra call to the answer
+model with a strict JSON schema (Ollama structured outputs). Nothing new is installed.
+
+- Unsupported statements are listed under the answer; unsupported diagram boxes are drawn
+  dashed red. A box that cites no source (`B["Manager approves (S2)"]` is the required form)
+  counts as unsupported without asking the model.
+- The verify step reports `N/M claims supported`. If the judge fails, the answer is still
+  shown and the step says the check was unavailable.
+- Sources reach the judge datamarked and cut to the same length the answer model saw.
+- `GROUNDING_CHECK=false` turns it off. Cost: about 1.5 to 2 s per answer on the RX 9070 XT.
+
+Faithfulness in the eval is the RAGAS definition: supported claims / claims, averaged over
+answered questions. GitLab handbook, Qwen reranker, 39 questions: **0.896** (correct 84.8%).
+The lowest scores were Hindi answers: the judge compares Hindi claims with English passages
+and under-rates correct answers (a right "90 days" answer scored 0.17), so treat Hindi
+flags with caution until that is fixed.
+
 ### Prompt gate (Laya)
 
 What was wrong with the gate on Hindi, what changed, the results and the plan from here are in
@@ -492,9 +513,9 @@ filesystem isolation, which needs a separate worker container.
 
 4. ~~No reranker~~ and ~~no evaluation set~~: done, see [Evaluation](#evaluation). What's left:
    the golden set is 53 questions over a small demo library, so it can tell rerankers apart
-   but is not a benchmark. Grow it from real questions (the audit log has them), score
-   faithfulness with an LLM judge (DeepEval or Ragas), and add a promptfoo red-team suite
-   against the gate.
+   but is not a benchmark. Grow it from real questions (the audit log has them) and add a
+   promptfoo red-team suite against the gate. ~~Faithfulness~~: done, see below. What's left:
+   Hindi answers judged against English sources score too low (see Claim check).
 5. **The answer order isn't the user's order of trust.** Nothing prefers current documents over
    superseded ones (e.g. last year's handbook). Rank by document date or status metadata.
 6. **Keyword search lives in Postgres.** This works, but Qdrant 1.20's native BM25 sparse

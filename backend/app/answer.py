@@ -59,9 +59,10 @@ Rules:
   sources never contain a drawing. If the sources describe the steps, answer normally and draw
   them; never reply with the not-found sentence just because there is no diagram in the sources.
 - If the question asks for a diagram, flowchart, chart of steps or process map, add one fenced
-  ```mermaid code block (flowchart TD or sequenceDiagram) after your sentences. Build it only from
-  steps and names in the sources, keep node labels short, put labels with spaces or punctuation
-  in double quotes, and put no [S1] citations inside the diagram (cite in your sentences).
+  ```mermaid code block (flowchart TD) after your sentences. Draw only steps, decisions and names
+  that the sources state; don't add rejections, loops or outcomes they don't describe. Write each
+  box label in double quotes and end it with its source in round brackets, like
+  B["Manager approves (S2)"]. Never use [S1] square citations inside the diagram.
 - Answer in the language the question is written in (Hindi for a Hindi question), whatever the
   language of the sources. Exception: when the sources don't answer it, reply with the not-found
   sentence above exactly as written, in English, with no citation, whatever the question's
@@ -168,6 +169,25 @@ class OllamaChat:
                         return
         except httpx.HTTPError as exc:
             raise LlmError(f"Ollama unreachable at {self._http.base_url}: {exc}") from exc
+
+    async def complete_json(self, messages: list[dict[str, str]], schema: dict) -> dict:
+        """One non-streamed reply constrained to a JSON schema (Ollama structured outputs)."""
+        body = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "think": False,
+            "format": schema,
+            "keep_alive": self.keep_alive,
+            "options": {"temperature": 0, "num_ctx": self.context_tokens},
+        }
+        try:
+            response = await self._http.post("/api/chat", json=body)
+        except httpx.HTTPError as exc:
+            raise LlmError(f"Ollama unreachable at {self._http.base_url}: {exc}") from exc
+        if response.status_code != 200:
+            raise LlmError(f"Ollama returned {response.status_code}: {response.text[:300]}")
+        return json.loads(response.json()["message"]["content"])
 
     async def available(self) -> bool:
         try:

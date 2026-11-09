@@ -27,6 +27,7 @@ from typing import Any
 import yaml
 from sqlalchemy import select
 
+from . import grounding
 from .answer import LlmError, build_messages, extractive_answer, verify
 from .config import BASE_DIR
 from .devices import resolve_device
@@ -150,7 +151,13 @@ async def evaluate(
 
 async def _answer(services: Services, q: Question, passages: list[Passage]) -> dict[str, Any]:
     if not passages:
-        return {"refused": True, "missing": [], "cited_expected": False, "answer_ms": 0.0}
+        return {
+            "refused": True,
+            "missing": [],
+            "cited_expected": False,
+            "answer_ms": 0.0,
+            "faithfulness": None,
+        }
     started = time.perf_counter()
     raw = ""
     if services.llm is not None:
@@ -163,7 +170,11 @@ async def _answer(services: Services, q: Question, passages: list[Passage]) -> d
     verified = verify(raw, len(passages))
     refused = verified.no_answer or not verified.cited
     cited = {passages[n - 1].rel_path for n in verified.cited}
+    faithfulness = None
+    if not refused and services.llm is not None and services.settings.grounding_check:
+        faithfulness = (await grounding.check(services.llm, verified.text, passages)).faithfulness
     return {
+        "faithfulness": faithfulness,
         "refused": refused,
         "missing": [] if refused else facts_present(verified.text, q.facts),
         "cited_expected": bool(cited & set(q.expect)),
@@ -204,6 +215,10 @@ def summarize(rows: list[dict[str, Any]], top_k: int, answers: bool) -> dict[str
                 "correct_refusals": round(
                     sum(1 for r in unanswerable if r["refused"]) / (len(unanswerable) or 1), 3
                 ),
+                # RAGAS faithfulness: share of an answer's claims its cited sources support, averaged
+                "faithfulness": round(statistics.mean(scored), 3)
+                if (scored := [r["faithfulness"] for r in rows if r.get("faithfulness") is not None])
+                else None,
                 "answer_ms_mean": round(statistics.mean(r["answer_ms"] for r in rows), 1),
             }
         )

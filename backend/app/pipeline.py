@@ -20,7 +20,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import audit
+from . import audit, grounding
 from .answer import LlmError, build_messages, extractive_answer, verify
 from .models import User
 from .retrieval import Passage
@@ -35,7 +35,7 @@ STEPS = {
     "access": "Resolve folder access",
     "retrieve": "Search permitted folders",
     "generate": "Write answer",
-    "verify": "Verify citations",
+    "verify": "Verify citations and claims",
     "audit": "Audit log",
 }
 
@@ -198,6 +198,7 @@ async def answer_question(
 
     # 5. Verify ----------------------------------------------------------------------------
     t = time.perf_counter()
+    claims_checked: grounding.Grounding | None = None
     verified = verify(raw, len(passages)) if passages else None
     if verified is None or verified.no_answer:
         text = "I couldn't find this in the documents you have access to."
@@ -213,14 +214,38 @@ async def answer_question(
     else:
         text = verified.text
         cited = [citation(n, passages[n - 1]) for n in verified.cited]
-        status = "pass" if verified.grounded and not verified.dropped else "warn"
+        claims_checked = None
+        if services.settings.grounding_check and provider != "extractive":
+            yield step("verify", "running", "Checking each claim against its sources…")
+            claims_checked = await grounding.check(services.llm, text, passages)
+            text = grounding.mark_diagrams(text, claims_checked)
+        unsupported = claims_checked.unsupported if claims_checked else []
+        status = "pass" if verified.grounded and not verified.dropped and not unsupported else "warn"
         summary = (
             f"{len(cited)} citation(s) verified"
             + (f" · {len(verified.dropped)} invalid removed" if verified.dropped else "")
             + ("" if verified.grounded else " · answer cites no source")
         )
+        if claims_checked and claims_checked.checked:
+            judged = [c for c in claims_checked.claims if c.supported is not None]
+            summary += f" · {len(judged) - len(unsupported)}/{len(judged)} claims supported"
+        elif claims_checked and claims_checked.error:
+            summary += " · claim check unavailable"
         yield step(
-            "verify", status, summary, {"dropped": verified.dropped, "grounded": verified.grounded}, _ms(t)
+            "verify",
+            status,
+            summary,
+            {
+                "dropped": verified.dropped,
+                "grounded": verified.grounded,
+                "claims": [
+                    {"kind": c.kind, "text": c.text, "sources": c.sources, "supported": c.supported}
+                    for c in (claims_checked.claims if claims_checked else [])
+                ],
+                "faithfulness": claims_checked.faithfulness if claims_checked else None,
+                "error": claims_checked.error if claims_checked else None,
+            },
+            _ms(t),
         )
 
     yield {
@@ -230,6 +255,11 @@ async def answer_question(
         "citations": cited,
         "no_answer": not cited and (verified is None or verified.no_answer),
         "grounded": bool(verified and verified.grounded),
+        "unsupported": [
+            {"kind": c.kind, "text": c.text}
+            for c in (claims_checked.unsupported if cited and claims_checked else [])
+        ],
+        "faithfulness": claims_checked.faithfulness if cited and claims_checked else None,
     }
 
     # 6. Audit -----------------------------------------------------------------------------

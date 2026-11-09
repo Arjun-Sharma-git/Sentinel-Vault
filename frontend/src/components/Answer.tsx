@@ -4,7 +4,7 @@ import { Ban, Check, Copy, FileText, SearchX, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { Markdown, toClipboard } from './Markdown'
 import { sourceFor } from '../lib/sources'
-import type { Citation, SourceInfo } from '../lib/types'
+import type { Citation, SourceInfo, Unsupported } from '../lib/types'
 import type { Turn } from '../lib/useAsk'
 import { Badge, Card, Eyebrow, cn } from './ui'
 
@@ -52,6 +52,27 @@ function CopyButton({ text }: { text: string }) {
       {copied ? <Check className="size-3.5 text-gold-deep" /> : <Copy className="size-3.5" />}
       {copied ? 'Copied' : 'Copy'}
     </button>
+  )
+}
+
+function Unverified({ items }: { items: Unsupported[] }) {
+  const boxes = items.filter((i) => i.kind === 'node').length
+  return (
+    <div className="mt-4 rounded-2xl border border-brick/25 bg-brick-soft/60 px-4 py-3 text-xs text-brick">
+      <p className="flex items-center gap-2 font-medium">
+        <ShieldAlert className="size-4" />
+        {items.length} statement{items.length === 1 ? '' : 's'} not supported by the cited sources
+        {boxes > 0 && ` (${boxes} diagram box${boxes === 1 ? '' : 'es'}, dashed red)`}
+      </p>
+      <ul className="mt-2 space-y-1 pl-6">
+        {items.map((item, i) => (
+          <li key={i} className="list-disc">
+            {item.kind === 'node' && <span className="mr-1 font-mono text-[10px] uppercase">box</span>}
+            {item.text || '(empty label)'}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -146,6 +167,7 @@ export function AnswerCard({ turn, sources }: { turn: Turn; sources?: SourceInfo
               <ShieldAlert className="size-4" /> This answer doesn't cite a source. Check the documents before relying on it.
             </p>
           )}
+          {final && (final.unsupported?.length ?? 0) > 0 && <Unverified items={final.unsupported!} />}
           {final && final.citations.length > 0 && <Sources citations={final.citations} sources={sources} />}
           {final && turn.text && (
             <div className="mt-4 flex justify-end">

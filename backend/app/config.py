@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     llm_keep_alive: str = "2m"
     # Mark retrieved text so instructions inside documents read as data (Spotlighting).
     datamark_sources: bool = True
+    # Judge each cited sentence and diagram box against its sources with the answer model
+    # (one extra JSON call per answer, see app/grounding.py). Off: citations are only range-checked.
+    grounding_check: bool = True
 
     # ---- Prompt gate (Laya, from Sentinel) --------------------------------------------
     gate_engine: Literal["laya", "heuristic", "off"] = "laya"
