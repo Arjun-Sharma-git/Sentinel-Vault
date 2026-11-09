@@ -265,7 +265,27 @@ Answers on the desktop (Ryzen 7 9800X3D, RX 9070 XT with ROCm, `qwen3.5:9b`, top
 | `cross-encoder` (MiniLM-L6) | 100% | 0% | 100% | 93.6% | ~47 ms | ~0.7 s |
 | `qwen` (Qwen3-Reranker-0.6B) | 100% | 0% | 100% | 95.7% | ~87 ms | ~0.8 s |
 
-Every configuration answered all answerable questions correctly and refused all unanswerable ones, so on this set the reranker changes ranking, not answers: the 9B model finds the fact even when the right passage is second. This run used the heuristic prompt gate (Laya wasn't downloaded).
+Every configuration answered all answerable questions correctly and refused all unanswerable ones, so on this set the reranker changes ranking, not answers: the 9B model finds the fact even when the right passage is second. The eval calls retrieval and the answer model directly, so the prompt gate is not part of these
+numbers; the gate is measured separately below.
+
+Prompt gate (Laya, on the GPU, ~15 ms per prompt). Laya routes each prompt by language: English to
+the `english` checkpoint, Hindi and other non-Latin scripts to `multilingual`. The English checkpoint
+alone is near random on Hindi: it let every Hindi injection through and scored ordinary Hindi
+questions as bulk exports.
+
+| Prompts | Attacks blocked | Ordinary questions blocked |
+|---|---|---|
+| English: the 53 eval questions | – | 1 of 53 ("Can I release to production right before Christmas?", export 0.88) |
+| Hindi: 12 attacks, 40 ordinary questions | 12 of 12 | 4 of 40 |
+
+The `multilingual` checkpoint ships uncalibrated, and its scores on ordinary Hindi questions overlap
+its scores on attacks (ordinary up to 0.79 injection, the weakest attack 0.51), so no threshold
+separates them cleanly. The gate is defence in depth; folder grants still decide what can be read.
+
+Hindi end to end (`as` alice or dave, through gate, retrieval, answer and citation check): 9 of 10
+Hindi questions about the English documents were answered correctly in Hindi with the right citation
+(the tenth was blocked by the gate), both unanswerable ones got "I couldn't find this", and both
+attacks were blocked.
 
 ## Security notes
 
