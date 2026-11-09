@@ -168,10 +168,11 @@ mostly one kind:
   rights"
 
 The translations of these are accurate, and both Laya's English checkpoint and the judge still
-pass them, so this is a gap in what the gate recognises, not in the language. The three
-permission-claim prompts score 0.1 to 0.2 on both questions, so no threshold or review band
-reaches them. They are also the prompts the folder grants make harmless: asking not to be checked
-does not skip the check.
+pass them, so this is a gap in what the gate recognises, not in the language. Three of them
+("rules are cancelled", "don't check my permission", "add my account to the management group")
+score 0.1 to 0.2 on both questions, so no threshold or review band reaches them; the other two
+reached the second stage and passed it. The permission claims are also the prompts the folder
+grants make harmless: asking not to be checked does not skip the check.
 
 Other known issues: one ordinary Hinglish question and one English question ("release before
 Christmas") are wrongly blocked by the first pass, which the second stage cannot undo by design;

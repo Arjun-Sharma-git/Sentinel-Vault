@@ -11,6 +11,8 @@ grants in a Zanzibar-style authorization service.
 
 Why each component was chosen (vector database, authorization engine, models, parsing, and how
 leaks are tested) is in the research report: [docs/research.md](docs/research.md).
+How the prompt gate was made to work on Hindi and Hinglish, and what is next, is in
+[docs/gate-hardening.md](docs/gate-hardening.md).
 
 ```
 backend/   Python 3.12 · uv · FastAPI · SQLAlchemy 2 + Alembic · Postgres 17 · Qdrant 1.20 · OpenFGA 1.22
