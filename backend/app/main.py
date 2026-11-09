@@ -126,7 +126,9 @@ def create_app() -> FastAPI:
             "llm": services.llm.model if services.llm else "extractive",
             "embeddings": services.embedder.name,
             "reranker": services.retriever.reranker.name,
+            "claim_judge": services.fact_checker.model if services.fact_checker else "answer model",
             "vectors": await services.vectors.count(),
+            "degraded": services.degraded,
         }
 
     for module in (auth_routes, chat_routes, library_routes, admin_routes):

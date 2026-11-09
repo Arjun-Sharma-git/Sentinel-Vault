@@ -132,16 +132,30 @@ export function AppLayout() {
 export function EngineBadge() {
   const { data } = useHealth()
   if (!data) return null
+  const degraded = data.degraded ?? []
   return (
     <div
-      className="inline-flex items-center gap-2 rounded-full border border-line bg-paper/80 py-1.5 pl-3 pr-3.5 text-xs backdrop-blur"
-      title={`Authorization: ${data.authz} · gate: ${data.gate} · embeddings: ${data.embeddings} · ${data.vectors} vectors`}
+      className={cn(
+        'inline-flex items-center gap-2 rounded-full border bg-paper/80 py-1.5 pl-3 pr-3.5 text-xs backdrop-blur',
+        degraded.length ? 'border-brick/40' : 'border-line',
+      )}
+      title={[
+        `Authorization: ${data.authz} · gate: ${data.gate} · embeddings: ${data.embeddings}`,
+        `reranker: ${data.reranker ?? '?'} · claim judge: ${data.claim_judge ?? '?'} · ${data.vectors} vectors`,
+        ...degraded.map((d) => `Not running: ${d}`),
+      ].join('\n')}
     >
-      <span className={cn('size-2 rounded-full', data.llm === 'extractive' ? 'bg-gold' : 'bg-sage')} />
+      <span
+        className={cn(
+          'size-2 rounded-full',
+          degraded.length ? 'bg-brick' : data.llm === 'extractive' ? 'bg-gold' : 'bg-sage',
+        )}
+      />
       <span className="font-medium">{data.llm}</span>
       <span className="font-mono text-muted">
         {data.authz} · {data.gate}
       </span>
+      {degraded.length > 0 && <span className="font-medium text-brick">degraded</span>}
     </div>
   )
 }

@@ -178,3 +178,9 @@ async def test_an_error_in_the_folder_stream_is_not_a_partial_answer():
     )
     with pytest.raises(AuthzUnavailable):
         await _fga_client(lambda r: httpx.Response(200, text=body)).folders_for("u1")
+
+
+def test_health_reports_what_failed_to_start(api):
+    health = api.get("alice", "/api/health").json()
+    assert isinstance(health["degraded"], list)
+    assert "claim_judge" in health and "reranker" in health

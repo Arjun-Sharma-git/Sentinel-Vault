@@ -78,7 +78,17 @@ export type AuditRow = {
   detail: Record<string, unknown>
 }
 
-export type Health = { status: string; authz: string; gate: string; llm: string; embeddings: string; vectors: number }
+export type Health = {
+  status: string
+  authz: string
+  gate: string
+  llm: string
+  embeddings: string
+  reranker?: string
+  claim_judge?: string
+  vectors: number
+  degraded?: string[] // configured but not running
+}
 
 // ---- The /api/ask event stream -----------------------------------------------------------
 
