@@ -20,6 +20,68 @@ backend/   Python 3.12 · uv · FastAPI · SQLAlchemy 2 + Alembic · Postgres 17
 frontend/  React 19 · Vite · TanStack Router / Query / Table · Tailwind v4
 ```
 
+## See it work
+
+Screenshots of the running app on the demo data (Acme company, 18 documents) and the GitLab
+Handbook (4,197 pages), one question each. Every answer comes from the local model on an RX 9070 XT.
+
+**1. Sign in.** Five demo people, each in different groups: Alice (admin, leadership), Bob
+(finance), Erin (HR), Carol (engineering, plus one grant on the engineering budget), Dave (intern).
+
+![Sign-in page](docs/images/01-sign-in.jpg)
+
+**2. Ask.** Pick which knowledge sources to search, or try a suggested question. The dark panel is
+the live decision trace: every step of the answer appears there as it happens.
+
+![The ask page with the source picker and suggested questions](docs/images/02-ask.jpg)
+
+**3. Bob from finance asks about Q3 revenue.** The gate passes the question, OpenFGA says he can
+read 3 folders, search finds the Q3 report (reranker relevance 1.00), and the answer cites it.
+MiniCheck confirms the one claim (1/1 supported).
+
+![Bob gets the Q3 revenue answer with a citation](docs/images/03-answer-finance.jpg)
+
+**4. Dave the intern asks the same question.** He can read one folder, so the finance report is
+never searched. The best passages he can see score 0.00, and he gets "I couldn't find this", not
+a guess.
+
+![Dave gets no answer because the report is outside his folders](docs/images/04-no-access-intern.jpg)
+
+**5. A prompt injection is stopped before search.** Laya scores it 0.96 as an injection attempt;
+access, search and the model never run, and the attempt is still written to the audit log.
+
+![The prompt gate blocks an injection attempt](docs/images/05-gate-blocks-injection.jpg)
+
+**6. Ask for a diagram.** The answer comes with a Mermaid flowchart (copy the code, or download
+SVG, PNG or .mmd). Every box cites its source, and the claim check marks what the sources don't
+support: here 13 of 15 claims passed, and the flagged box is drawn dashed red.
+
+![A flowchart answer with the claim check](docs/images/06-flowchart.jpg)
+
+**7. Hindi works end to end.** Asked in Hindi, answered in Hindi from an English document
+("up to three days a week").
+
+![A Hindi question answered in Hindi](docs/images/07-hindi.jpg)
+
+**8. The library shows only what you can read.** Carol's folders, grouped by knowledge source;
+she can upload to the ones she edits.
+
+![Carol's library](docs/images/08-library.jpg)
+
+**9. Admins grant folders to groups.** Changes apply on the next question; nothing is
+re-indexed.
+
+![The access matrix](docs/images/09-access.jpg)
+
+**10. Everything is audited.** Every question, sign-in and permission change, with who and when.
+Each question's record also stores the gate's scores and exactly which documents the answer used.
+
+![The audit log](docs/images/10-audit.jpg)
+
+To retake these after a UI change: start the app, then
+`cd frontend && node scripts/screenshots.mjs` (Playwright; set `PLAYWRIGHT_BROWSERS_PATH` if its
+browser lives elsewhere). Answers come from the model, so wording can change between runs.
+
 ## Architecture
 
 Every component runs on one machine. The data services bind to `127.0.0.1` only. Postgres is

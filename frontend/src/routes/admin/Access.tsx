@@ -83,9 +83,9 @@ function GroupMatrix({ folders, groups, grants }: { folders: Folder[]; groups: {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-y border-line">
-              <th className="px-6 py-3 text-left text-[10px] font-medium uppercase tracking-[0.18em] text-muted">Folder</th>
+              <th className="w-full px-6 py-3 text-left text-[10px] font-medium uppercase tracking-[0.18em] text-muted">Folder</th>
               {groups.map((g) => (
-                <th key={g.id} className="whitespace-nowrap px-3 py-3 text-center text-xs font-medium">
+                <th key={g.id} className="min-w-[5.5rem] whitespace-nowrap px-3 py-3 text-center text-xs font-medium">
                   {g.name}
                 </th>
               ))}
@@ -94,9 +94,17 @@ function GroupMatrix({ folders, groups, grants }: { folders: Folder[]; groups: {
           <tbody>
             {folders.map((f) => (
               <tr key={f.id} className="border-b border-line/70">
-                <td className="whitespace-nowrap py-3 pr-6" style={{ paddingLeft: `${1.5 + (f.path.split('/').length - 1) * 1.1}rem` }}>
-                  <span className="font-medium">{f.name}</span>
-                  <span className="ml-2 font-mono text-[11px] text-muted">{f.path}</span>
+                {/* max-w-0 + w-full: the folder column takes only the width the group columns leave,
+                    and long handbook paths are cut with an ellipsis (full path on hover). */}
+                <td
+                  className="max-w-0 py-3 pr-6"
+                  style={{ paddingLeft: `${1.5 + Math.min(f.path.split('/').length - 1, 4) * 1.1}rem` }}
+                  title={f.path}
+                >
+                  <div className="truncate">
+                    <span className="font-medium">{f.name}</span>
+                    <span className="ml-2 font-mono text-[11px] text-muted">{f.path}</span>
+                  </div>
                 </td>
                 {groups.map((g) => {
                   const current = level(f.id, g.id)

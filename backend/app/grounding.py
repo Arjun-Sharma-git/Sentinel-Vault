@@ -26,7 +26,9 @@ _FENCE = re.compile(r"```mermaid[^\n]*\n(.*?)```", re.S)
 _SENT_CITE = re.compile(r"\[S(\d+)\]")
 _NODE_CITE = re.compile(r"\(S(\d+)\)")
 # A mermaid node definition: id followed by a shape holding the label, e.g. A["..."], B{...}, C(...)
-_NODE = re.compile(r'\b([A-Za-z][\w-]*)\s*(?:\[\[|\[\(|\(\(|\[|\(|\{\{|\{|>)\s*(?:"([^"]*)"|([^\]\)\}"]+))')
+_NODE = re.compile(r'\b([A-Za-z][\w-]*)\s*(?:\[\[|\[\(|\(\(|\[|\(|\{\{|\{)\s*(?:"([^"]*)"|([^\]\)\}"]+))')
+# Arrow labels are text on an edge, not boxes: A -->|Delay > 2 weeks| B, A -- Approved --> B.
+_EDGE_LABEL = re.compile(r"\|[^|\n]*\||--\s+[^\n]*?\s+--(?=[->])|-\.\s+[^\n]*?\s+\.-")
 # Sentences about the sources themselves ("Source S6 refers to the CEO but doesn't name them"):
 # no document can support them, so they are left unjudged rather than flagged.
 _ABOUT_SOURCES = re.compile(
@@ -111,7 +113,7 @@ def extract_claims(text: str, n_sources: int) -> list[Claim]:
                 claims.append(Claim(len(claims) + 1, "sentence", body, valid(nums)))
     for diagram in _FENCE.findall(text):
         seen: set[str] = set()
-        for node, quoted, bare in _NODE.findall(diagram):
+        for node, quoted, bare in _NODE.findall(_EDGE_LABEL.sub(" ", diagram)):
             label = quoted or bare
             if node in seen or node in {"subgraph", "end", "classDef", "class", "style"}:
                 continue

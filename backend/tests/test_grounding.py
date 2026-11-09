@@ -178,3 +178,21 @@ def test_sentences_about_the_sources_are_not_judged():
     )
     claims = grounding.extract_claims(text, 6)
     assert [c.text for c in claims] == ["Sid Sijbrandij co-founded GitLab."]
+
+
+def test_arrow_labels_are_not_boxes():
+    """`Delay > 2 weeks` on an arrow was read as a box ('>' opens Mermaid's asymmetric shape)."""
+    text = (
+        "```mermaid\nflowchart TD\n"
+        '  A{"Approve? (S1)"} -->|Approved| B["Pay out (S1)"]\n'
+        '  A -->|Delay > 2 weeks| C["Create Compass case (S2)"]\n'
+        '  B -- Announce in #thanks --> D["Recognition (S3)"]\n'
+        "```"
+    )
+    nodes = [c for c in grounding.extract_claims(text, 3) if c.kind == "node"]
+    assert [(c.node, c.text, c.sources) for c in nodes] == [
+        ("A", "Approve?", [1]),
+        ("B", "Pay out", [1]),
+        ("C", "Create Compass case", [2]),
+        ("D", "Recognition", [3]),
+    ]
