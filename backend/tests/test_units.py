@@ -124,3 +124,14 @@ async def test_ollama_embedding_gives_up_after_the_retry(monkeypatch):
     )
     with pytest.raises(embeddings.EmbeddingError):
         await embedder.embed_documents(["x"])
+
+
+def test_hindi_refusals_in_the_models_own_words_are_recognised():
+    from app.answer import verify
+
+    refusal = "स्रोतों में पितृत्व और मातृत्व अवकाश के बारे में कोई जानकारी नहीं दी गई है। [S1] में केवल वेलबीइंग दिन हैं।"
+    assert verify(refusal, 3).no_answer
+    answer = "नहीं, आप क्रिसमस से ठीक पहले प्रोडक्शन में रिलीज़ नहीं कर सकते [S1]।"
+    assert not verify(answer, 3).no_answer
+    cited = "पूर्णकालिक कर्मचारियों को 25 दिनों की छुट्टी मिलती है [S1]।"
+    assert verify(cited, 3).grounded
