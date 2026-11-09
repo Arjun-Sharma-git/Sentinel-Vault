@@ -169,6 +169,54 @@ Library page. Supported: Markdown, text, CSV, JSON, HTML, PDF (with OCR for scan
 Re-scans compare SHA-256 hashes: changed files are re-indexed, deleted files leave the index, and a
 file **moved** to another folder keeps its vectors; only its folder tag changes.
 
+### Knowledge sources
+
+A knowledge base you keep in sync from somewhere else is a **source**: one YAML file in
+`backend/sources/` that says where it comes from, how it becomes library files, which top-level
+folder it owns, who may read which part, and which eval questions measure it. Two ship with the
+repo: `demo` (the Acme documents in `data/library`) and `gitlab-handbook` (the
+[GitLab Handbook](https://handbook.gitlab.com), CC BY-SA 4.0, 4,196 Markdown pages in 35 sections).
+
+```bash
+cd backend
+uv run python -m app.cli source list                       # sources, folders, indexed documents
+uv run python -m app.cli source sync gitlab-handbook       # fetch, convert, swap in, rescan
+uv run python -m app.cli source grant gitlab-handbook      # add its grants (--dry-run to preview)
+uv run python -m app.cli source eval gitlab-handbook --rerankers off,qwen --answers   # [--mixed]
+```
+
+```yaml
+# backend/sources/<name>.yaml
+name: team-wiki
+title: Team wiki
+folder: team-wiki                      # the one top-level library folder this source owns
+fetch: {git: {url: https://…, ref: main, sparse: ["/docs/**/*.md"]}}   # or {path: /some/dir}
+convert: hugo-markdown                 # or copy
+convert_options: {root: docs, home: home}
+grants:
+  - {group: everyone, folders: [home, guides]}
+  - {group: engineering, relation: editor, folders: [runbooks]}
+eval: eval/sources/team-wiki.yaml      # same format as eval/golden.yaml
+```
+
+What the tooling guarantees, all covered by `tests/test_sources.py`:
+
+- A sync builds the new tree beside the library and swaps it in, replacing only the source's own
+  folder; a root-level source (`folder: "."`, like the demo) can't overwrite another source's.
+  Unchanged pages aren't re-indexed (a handbook re-sync re-indexed 2 of 4,215 documents).
+- `closed_root` (default on) refuses a grant on the source's own folder, which would pass down to
+  every section; `require_all_granted` (default on) refuses to write anything while a section has no
+  grant, so a section that appears upstream is reported instead of staying silently closed or open.
+  Unknown groups, users and folders are refused the same way. Grants are only ever added.
+- `seed-demo` applies `sources/demo.yaml`, so the demo's grants live in one place.
+
+Questions can be **scoped** to sources: `POST /api/ask` takes `"sources": ["gitlab-handbook"]`, and
+the search then only covers those sources' folders, still within what the user may read (scoping
+can only narrow). `source eval` scopes to its own source unless `--mixed` is given. This matters as
+soon as two knowledge bases answer the same questions differently: unscoped, Alice's demo
+questions ("how many days a week can I work from home?") retrieved GitLab's policies instead of
+Acme's, and the demo eval dropped from 100% to 70% correct (see Evaluation).
+
 ## The two hardware profiles
 
 | | Laptop (16 GB RAM, CPU) | Desktop (Ryzen 7 9800X3D, 32 GB, RX 9070 XT 16 GB) |
@@ -277,6 +325,35 @@ matters on the laptop, where MiniLM is the default; Qwen, the desktop default, i
 ranks Hindi best. All 12 Hindi questions are answered correctly in Hindi, and all 4 two-document
 questions use both documents. Correctness is still 100% for every configuration, so the next
 harder questions should go where the models disagree.
+
+The GitLab handbook source has its own set, `eval/sources/gitlab-handbook.yaml`: 39 questions
+whose answers were checked against the pages, covering every permission group (finance, HR,
+leadership-only, engineering, everyone), 4 in Hindi, and 6 that must be refused because the
+answer sits only in a section the persona can't read. Refusal questions were checked against
+everything the persona can read: three first drafts had a legitimate other answer in a readable
+page (the demo company's own meal allowance, a marketing page's speaker-gift limit) and were
+replaced. Desktop, `qwen3.5:9b`, top 8, scoped to the source:
+
+| Handbook, `qwen` reranker | Right document first | In top 3 | In top 8 | Correct answers | Correct refusals |
+|---|---|---|---|---|---|
+| Before: no per-document cap | 72.7% | 87.9% | 87.9% | 78.8% | 4 of 6 |
+| At most 2 passages per document | 81.8% | 97.0% | 100% | 81.8% | 5 of 6 |
+| + answers in the question's language | 81.8% | 97.0% | 100% | 87.9% | 5 of 6 |
+
+(The first row is on the draft question set; the other two on the corrected one.) The cap
+(`RETRIEVAL_MAX_PER_DOCUMENT`, default 2) exists because the handbook showed one long page filling
+every slot: a 40-chunk Navan expense guide took 7 of 8 passages and pushed out the expense policy
+that answered the question. With it, the right page reaches the model for every question; what
+still goes wrong is the answer: the model says "not specified" when the right passage is first,
+or answers a neighbouring question (asked about engagement check-ins it can't see, it describes
+the weekly 1:1 cadence it can). Without a reranker the right page is first only 48.5% of the time
+(84.8% in the top 3), so on the handbook the Qwen reranker matters far more than on the demo.
+
+Mixing knowledge bases, measured: the demo questions searched across the whole library (demo plus
+handbook, `--mixed`) got the right document first 65.1% of the time and 69.8% correct, against
+96.8% and 100% scoped to the demo. Answers in Hindi are now in Hindi; Hindi refusals in the model's
+own words ("स्रोतों में ... कोई जानकारी नहीं ...") are recognised like the English ones, so the demo
+set refuses all 8 of its unanswerable questions again.
 
 The eval calls retrieval and the answer model directly, so the prompt gate is not part of these
 numbers; the gate is measured separately below.
