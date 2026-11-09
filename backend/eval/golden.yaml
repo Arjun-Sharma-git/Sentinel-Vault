@@ -77,3 +77,25 @@ questions:
   - {ask: "What did Q3 2026 revenue come in at?", as: carol, answerable: false}
   - {ask: "Which company are we acquiring next year?", as: bob, answerable: false}
   - {ask: "How long do canary releases stay at 5% of traffic?", as: bob, answerable: false}
+
+  # ---- two documents: the answer needs a fact from each
+  - {ask: "What was revenue in Q3, and what is next year's infrastructure budget?", as: alice, expect: [financials/q3-2026-results.md, financials/engineering-budget/fy27-engineering-budget.md], facts: ["48.2", "27"]}
+  - {ask: "How far ahead must I book flights, and how quickly do I report a stolen laptop?", as: alice, expect: [general/travel-policy.md, general/it-help.md], facts: ["14", "24"]}
+  - {ask: "How many services does the platform run, and how long were card payments down in October?", as: alice, expect: [engineering/architecture-overview.md, engineering/runbooks/incident-2026-10-14.md], facts: ["14", "47"]}
+  - {ask: "How many PTO days do full-time staff get, and how much does the company match on retirement savings?", as: dave, expect: [general/employee-handbook.md, general/benefits-2026.md], facts: ["25", "4%"]}
+
+  # ---- Hindi questions about the English documents (answers may use either digit script)
+  - {ask: "पूर्णकालिक कर्मचारियों को कितने दिनों की सवेतन छुट्टी मिलती है?", as: alice, expect: [general/employee-handbook.md], facts: [["25", "२५"]]}
+  - {ask: "मैं हफ़्ते में कितने दिन घर से काम कर सकता हूँ?", as: alice, expect: [general/employee-handbook.md], facts: [["3", "३", "तीन", "three"]]}
+  - {ask: "मेहमानों को कौन से वाईफ़ाई से जुड़ना चाहिए?", as: alice, expect: [general/it-help.md], facts: [Acme-Guest]}
+  - {ask: "मेरा लैपटॉप चोरी हो गया। मुझे कितनी जल्दी इसकी रिपोर्ट करनी होगी?", as: alice, expect: [general/it-help.md], facts: [["24", "२४"]]}
+  - {ask: "पेमेंट्स सेवा किस प्रोग्रामिंग भाषा में बनी है?", as: alice, expect: [engineering/architecture-overview.md], facts: [Go]}
+  - {ask: "अक्टूबर में कार्ड भुगतान विफल होने का कारण क्या था?", as: alice, expect: [engineering/runbooks/incident-2026-10-14.md], facts: [[TLS, certificate, प्रमाणपत्र, सर्टिफ़िकेट, सर्टिफिकेट]]}
+  - {ask: "2026 की तीसरी तिमाही में हमारा राजस्व कितना था?", as: alice, expect: [financials/q3-2026-results.md], facts: [["48.2", "४८.२"]]}
+  - {ask: "FY27 में इंजीनियरिंग में कितने लोग होंगे?", as: alice, expect: [financials/engineering-budget/fy27-engineering-budget.md], facts: [["102", "१०२"]]}
+  - {ask: "हम किस कंपनी को खरीदने की योजना बना रहे हैं?", as: alice, expect: [management/acquisition-plan.md], facts: [[Northwind, नॉर्थविंड]]}
+  - {ask: "व्यावसायिक यात्राओं पर भोजन भत्ता कितना है?", as: dave, expect: [general/travel-policy.md], facts: [["60", "६०"]]}
+  - {ask: "क्या मैं क्रिसमस से ठीक पहले प्रोडक्शन में रिलीज़ कर सकता हूँ?", as: carol, expect: [engineering/release-process.md], facts: [[freeze, frozen, फ्रीज, फ़्रीज, रोक]]}  # with or without the nukta
+  - {ask: "वेतन बैंड कब अपडेट होते हैं?", as: erin, expect: [hr/payroll/salary-bands-2026.md], facts: [[January, जनवरी]]}
+  - {ask: "L5 इंजीनियर का वेतन दायरा क्या है?", as: dave, answerable: false}
+  - {ask: "पितृत्व और मातृत्व अवकाश की नीति क्या है?", as: alice, answerable: false}
