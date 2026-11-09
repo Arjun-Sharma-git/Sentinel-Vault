@@ -257,12 +257,15 @@ The reranker fixes the order, not recall: the right document was already in the 
 time. Order still matters, because a small model leans on its first sources. MiniLM is the laptop
 default. Qwen is the desktop default, where it runs on the GPU.
 
-Answers on the desktop (Ryzen 7 9800X3D, RX 9070 XT with ROCm, `qwen3.5:9b`, top 8 passages, 53 questions; `--answers` scores facts present, correct document cited and correct refusals):
+Answers on the desktop (Ryzen 7 9800X3D, RX 9070 XT with ROCm, `qwen3.5:9b`, top 8 passages). A correct answer contains every expected fact and cites the right document; 47 questions are answerable and 6 must be refused:
 
-| Reranker | hit@1 | hit@3 | hit@8 | mrr | rerank_ms_mean | rerank_ms_p95 | retrieve_ms_mean | correct | false_refusals | correct_refusals | answer_ms_mean |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| none (RRF only) | 0.915 | 1.0 | 1.0 | 0.957 | 0.0 | 0.0 | 33.4 | 1.0 | 0.0 | 1.0 | 860.6 |
-| qwen:Qwen3-Reranker-0.6B | 0.957 | 1.0 | 1.0 | 0.975 | 111.3 | 76.7 | 145.5 | 1.0 | 0.0 | 1.0 | 668.1 |
+| Reranker | Correct answers | False refusals | Correct refusals | Right document first | Rerank | Answer |
+|---|---|---|---|---|---|---|
+| none (RRF only) | 100% | 0% | 100% | 91.5% | – | ~0.8 s |
+| `cross-encoder` (MiniLM-L6) | 100% | 0% | 100% | 93.6% | ~47 ms | ~0.7 s |
+| `qwen` (Qwen3-Reranker-0.6B) | 100% | 0% | 100% | 95.7% | ~87 ms | ~0.8 s |
+
+Every configuration answered all answerable questions correctly and refused all unanswerable ones, so on this set the reranker changes ranking, not answers: the 9B model finds the fact even when the right passage is second. This run used the heuristic prompt gate (Laya wasn't downloaded).
 
 ## Security notes
 
