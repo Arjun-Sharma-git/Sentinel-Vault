@@ -166,8 +166,10 @@ def download_laya() -> None:
     os.environ["HF_HUB_OFFLINE"] = "0"
     from laya import Router
 
-    Router(default="english", vega=False, max_loaded=1, device="cpu").preload(["english"])
-    print("Laya is cached; the gate runs offline from now on.")
+    from .gate import LayaGate
+
+    Router(default="english", vega=False, max_loaded=2, device="cpu").preload(LayaGate.CHECKPOINTS)
+    print("Laya (english + multilingual) is cached; the gate runs offline from now on.")
 
 
 def download_docling() -> None:

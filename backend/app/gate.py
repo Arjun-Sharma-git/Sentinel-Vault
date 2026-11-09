@@ -58,22 +58,29 @@ class GateEngine(Protocol):
 
 
 class LayaGate:
-    name = "laya"
+    """Laya with language routing: English text goes to the `english` checkpoint, everything the
+    English one can't read (Devanagari, other non-Latin scripts, detected non-English) goes to
+    `multilingual`. The English checkpoint alone is near random on Hindi: it missed every Hindi
+    injection in our probe and scored ordinary Hindi questions as bulk exports."""
 
-    def __init__(self, checkpoint: str = "english", device: str = "cpu"):
+    name = "laya"
+    CHECKPOINTS = ["english", "multilingual"]
+
+    def __init__(self, device: str = "cpu"):
         """`device` is a torch device ("cpu" or "cuda"; ROCm GPUs also use "cuda")."""
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")  # the model must already be cached
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")  # the models must already be cached
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         from laya import Router
 
-        router = Router(default=checkpoint, vega=False, max_loaded=1, device=device)
-        router.preload([checkpoint])
-        self._agent = router.load(checkpoint)
+        # default="english": text whose language detection abstains is mostly English here.
+        # max_loaded=2 keeps both checkpoints resident instead of rebuilding on every switch.
+        self._router = Router(default="english", vega=False, max_loaded=2, device=device)
+        self._router.preload(self.CHECKPOINTS)
         self._lock = threading.Lock()  # one forward pass at a time
 
     def score(self, prompt: str) -> dict[str, float]:
         with self._lock:
-            out = self._agent.predict({"user_message": prompt}, QUESTIONS)
+            out = self._router.predict({"user_message": prompt}, QUESTIONS)
         return {name: float(out["answers"][name]["noul"]) for name in QUESTIONS}
 
 
