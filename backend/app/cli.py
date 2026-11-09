@@ -10,6 +10,7 @@ uv run python -m app.cli download-laya      fetch the Laya gate model once (need
 uv run python -m app.cli download-docling   fetch Docling's PDF models once (the parser runs offline)
 uv run python -m app.cli download-reranker  fetch the configured reranker model once
 uv run python -m app.cli eval [--answers]   score retrieval (and answers) on eval/golden.yaml
+uv run python -m app.cli gate-eval          fit and test the Laya gate thresholds on eval/gate_hindi.yaml
 """
 
 from __future__ import annotations
@@ -222,6 +223,21 @@ def download_reranker() -> None:
     print(f"{reranker.name} is cached.")
 
 
+def gate_eval(budget: float) -> None:
+    """Score eval/gate_hindi.yaml and the golden questions with Laya; fit per-checkpoint thresholds."""
+    from .config import BASE_DIR, get_settings
+    from .devices import resolve_device
+    from .gate import LayaGate, Thresholds
+    from .gate_eval import evaluate_gate, render_gate, save_gate
+
+    settings = get_settings()
+    engine = LayaGate(device=resolve_device(settings.torch_device).torch_device)  # no heuristic fallback
+    default = Thresholds(settings.gate_injection_threshold, settings.gate_exfiltration_threshold)
+    report = evaluate_gate(engine, budget, default)
+    print(render_gate(report))
+    print(f"\nfull report: {save_gate(report, BASE_DIR / 'eval' / 'results')}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="vault", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -245,6 +261,10 @@ def main() -> None:
         "--rerankers", default="off,cross-encoder", help="comma-separated: off, cross-encoder, qwen"
     )
     evaluation.add_argument("--answers", action="store_true", help="also generate and score answers (slow)")
+    gates = sub.add_parser("gate-eval", help="fit and test the gate thresholds on eval/gate_hindi.yaml")
+    gates.add_argument(
+        "--budget", type=float, default=0.02, help="largest share of ordinary prompts the gate may block"
+    )
     rebuild = sub.add_parser("reindex")
     rebuild.add_argument("--recreate", action="store_true", help="drop and rebuild the vector collection")
     args = parser.parse_args()
@@ -256,6 +276,9 @@ def main() -> None:
     }
     if args.command in downloads:
         downloads[args.command]()
+        return
+    if args.command == "gate-eval":
+        gate_eval(args.budget)
         return
     commands = {
         "create-admin": lambda: create_admin(args.email, args.name),
