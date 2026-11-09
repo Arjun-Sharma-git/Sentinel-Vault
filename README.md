@@ -374,10 +374,10 @@ model with a strict JSON schema (Ollama structured outputs). Nothing new is inst
 - `GROUNDING_CHECK=false` turns it off. Cost: about 1.5 to 2 s per answer on the RX 9070 XT.
 
 Faithfulness in the eval is the RAGAS definition: supported claims / claims, averaged over
-answered questions. GitLab handbook, Qwen reranker, 39 questions: **0.896** (correct 84.8%).
-The lowest scores were Hindi answers: the judge compares Hindi claims with English passages
-and under-rates correct answers (a right "90 days" answer scored 0.17), so treat Hindi
-flags with caution until that is fixed.
+answered questions. GitLab handbook, Qwen reranker, 39 questions: **0.909** (correct 84.8%).
+Hindi answers are judged against English passages; the judge is told to compare meaning across
+languages, which raised the Hindi questions' faithfulness from 0.667 to 0.875 (only 4 of them
+are answered, so that number moves a lot with one answer).
 
 ### Prompt gate (Laya)
 
@@ -514,8 +514,8 @@ filesystem isolation, which needs a separate worker container.
 4. ~~No reranker~~ and ~~no evaluation set~~: done, see [Evaluation](#evaluation). What's left:
    the golden set is 53 questions over a small demo library, so it can tell rerankers apart
    but is not a benchmark. Grow it from real questions (the audit log has them) and add a
-   promptfoo red-team suite against the gate. ~~Faithfulness~~: done, see below. What's left:
-   Hindi answers judged against English sources score too low (see Claim check).
+   promptfoo red-team suite against the gate. ~~Faithfulness~~: done, see Claim check. What's
+   left: more Hindi questions, so the Hindi faithfulness number means something.
 5. **The answer order isn't the user's order of trust.** Nothing prefers current documents over
    superseded ones (e.g. last year's handbook). Rank by document date or status metadata.
 6. **Keyword search lives in Postgres.** This works, but Qdrant 1.20's native BM25 sparse

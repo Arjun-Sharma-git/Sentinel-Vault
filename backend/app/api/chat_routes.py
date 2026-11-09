@@ -17,6 +17,34 @@ from .schemas import AskRequest
 router = APIRouter(prefix="/api", tags=["chat"], dependencies=[Depends(require_csrf_header)])
 
 
+class AskSlots:
+    """Questions each user may have running at once. Every question holds the GPU for seconds,
+    so one script or retrying tab must not queue dozens ahead of everyone else.
+
+    shortcut: counts live in this process. Fine for the single API process run.sh starts;
+    with several API replicas, each would allow `limit` per user.
+    """
+
+    def __init__(self) -> None:
+        self.running: dict[str, int] = {}
+
+    def acquire(self, user_id: str, limit: int) -> bool:
+        if self.running.get(user_id, 0) >= limit:
+            return False
+        self.running[user_id] = self.running.get(user_id, 0) + 1
+        return True
+
+    def release(self, user_id: str) -> None:
+        left = self.running.get(user_id, 0) - 1
+        if left > 0:
+            self.running[user_id] = left
+        else:
+            self.running.pop(user_id, None)
+
+
+slots = AskSlots()
+
+
 @router.post("/ask")
 async def ask(body: AskRequest, user: CurrentUser, services: Svc) -> StreamingResponse:
     within = None
@@ -27,11 +55,20 @@ async def ask(body: AskRequest, user: CurrentUser, services: Svc) -> StreamingRe
         except SourceError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    if not slots.acquire(user.id, services.settings.max_concurrent_asks):
+        raise HTTPException(
+            status_code=429,
+            detail="You already have a question running. Wait for it to finish, then ask again.",
+        )
+
     async def events() -> AsyncIterator[str]:
-        # The stream outlives the request-scoped session, so it opens its own.
-        async with session_factory()() as db:
-            async for event in answer_question(services, db, user, body.question, within):
-                yield f"event: {event['type']}\ndata: {json.dumps(event, default=str)}\n\n"
+        try:
+            # The stream outlives the request-scoped session, so it opens its own.
+            async with session_factory()() as db:
+                async for event in answer_question(services, db, user, body.question, within):
+                    yield f"event: {event['type']}\ndata: {json.dumps(event, default=str)}\n\n"
+        finally:
+            slots.release(user.id)
 
     return StreamingResponse(
         events(),

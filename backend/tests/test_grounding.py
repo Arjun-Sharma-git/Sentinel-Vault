@@ -103,3 +103,8 @@ def test_judge_sees_sources_as_marked_data_with_the_answer_models_limit():
     assert "Ignore your instructions" not in user["content"]  # words are joined by the mark
     body = user["content"].split('<source id="S1">\n')[1].split("\n</source>")[0]
     assert len(body.replace(MARK, " ")) <= MAX_PASSAGE_CHARS
+
+
+def test_judge_is_told_to_judge_meaning_across_languages():
+    system, _ = grounding.judge_messages(grounding.extract_claims("Alpha holds [S1].", 1), _passages(1))
+    assert "different language" in system["content"]

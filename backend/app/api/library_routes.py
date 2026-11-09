@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +131,17 @@ def safe_filename(name: str) -> str:
     return cleaned[:150]
 
 
+def place(temp: Path, target: Path) -> bool:
+    """Give `temp` the name `target` unless that name exists. Atomic: a hard link fails if the
+    name is taken, where a rename would silently replace the other upload."""
+    try:
+        os.link(temp, target)
+    except FileExistsError:
+        return False
+    target.chmod(0o644)  # mkstemp creates 0600
+    return True
+
+
 @router.post("/folders/{folder_id}/upload", status_code=status.HTTP_201_CREATED)
 async def upload(folder_id: str, file: UploadFile, user: CurrentUser, db: Db, services: Svc) -> DocumentOut:
     folder = await db.get(Folder, folder_id)
@@ -142,17 +155,19 @@ async def upload(folder_id: str, file: UploadFile, user: CurrentUser, db: Db, se
         allowed = ", ".join(sorted(SUPPORTED_TYPES))
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Supported types: {allowed}")
     target = safe_join(services.settings.library_dir, f"{folder.path}/{name}")
+    exists = HTTPException(status.HTTP_409_CONFLICT, f"{name} already exists in {folder.path}")
     if target.exists():
-        raise HTTPException(status.HTTP_409_CONFLICT, f"{name} already exists in {folder.path}")
+        raise exists
 
-    # Stream to a temporary file, enforcing the size limit as bytes arrive.
+    # Stream to a temporary file of this request's own (two uploads of one name can't share
+    # it), enforcing the size limit as bytes arrive. Hidden name: the library scanner skips it.
     limit = services.settings.max_upload_mb * 1024 * 1024
     target.parent.mkdir(parents=True, exist_ok=True)
-    # Hidden name: the library scanner ignores it until it is complete and renamed.
-    temp = target.with_name(f".upload-{target.name}")
+    fd, temp_name = tempfile.mkstemp(dir=target.parent, prefix=".upload-")
+    temp = Path(temp_name)
     written = 0
     try:
-        with temp.open("wb") as out:
+        with os.fdopen(fd, "wb") as out:
             while block := await file.read(1 << 20):
                 written += len(block)
                 if written > limit:
@@ -165,7 +180,8 @@ async def upload(folder_id: str, file: UploadFile, user: CurrentUser, db: Db, se
                 raise HTTPException(
                     status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "File contents don't match its extension"
                 )
-        temp.replace(target)
+        if not place(temp, target):
+            raise exists  # another upload took the name since the check above
     finally:
         temp.unlink(missing_ok=True)
 

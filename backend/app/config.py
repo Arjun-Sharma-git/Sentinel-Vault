@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     # Judge each cited sentence and diagram box against its sources with the answer model
     # (one extra JSON call per answer, see app/grounding.py). Off: citations are only range-checked.
     grounding_check: bool = True
+    # Questions one user may have running at once (each holds the GPU); more get a 429.
+    max_concurrent_asks: int = 1
 
     # ---- Prompt gate (Laya, from Sentinel) --------------------------------------------
     gate_engine: Literal["laya", "heuristic", "off"] = "laya"

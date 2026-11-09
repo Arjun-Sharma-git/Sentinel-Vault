@@ -143,3 +143,31 @@ def test_security_headers(api):
     response = api.get(None, "/api/health")
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_upload_never_replaces_a_file_that_appeared_after_the_check(tmp_path):
+    """Two uploads of one name: the loser must not overwrite the winner (hard link, not rename)."""
+    from app.api.library_routes import place
+
+    target = tmp_path / "report.md"
+    first, second = tmp_path / ".upload-a", tmp_path / ".upload-b"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    assert place(first, target)
+    assert not place(second, target)
+    assert target.read_bytes() == b"first"
+
+
+def test_one_running_question_per_user(api, monkeypatch):
+    from app.api import chat_routes
+
+    slots = chat_routes.AskSlots()
+    monkeypatch.setattr(chat_routes, "slots", slots)
+    dave = api.user_id("dave")
+    assert slots.acquire(dave, 1)  # a question of dave's is still streaming
+    busy = api.post("dave", "/api/ask", json={"question": "What is the travel policy?"})
+    assert busy.status_code == 429
+    assert api.post("erin", "/api/ask", json={"question": "hi"}).status_code == 200  # others unaffected
+    slots.release(dave)
+    assert api.post("dave", "/api/ask", json={"question": "hi"}).status_code == 200
+    assert slots.running == {}  # every finished stream gave its slot back
