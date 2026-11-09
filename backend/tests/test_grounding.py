@@ -168,3 +168,13 @@ def test_label_passages_uses_the_source_title():
     other.folder_path = "no-such-source/x"
     label_passages([handbook, other])
     assert handbook.source_title == "The GitLab Handbook"
+
+
+def test_sentences_about_the_sources_are_not_judged():
+    text = (
+        "Source S6 refers to the CEO but does not name them [S6]. "
+        "The provided sources mention a livestream [S1]. "
+        "Sid Sijbrandij co-founded GitLab [S1]."
+    )
+    claims = grounding.extract_claims(text, 6)
+    assert [c.text for c in claims] == ["Sid Sijbrandij co-founded GitLab."]

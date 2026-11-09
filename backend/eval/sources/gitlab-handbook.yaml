@@ -25,6 +25,9 @@ questions:
   - {ask: "How long do I need to have been in my current role before applying for an internal position?", as: erin, expect: [gitlab-handbook/hiring/talent-acquisition-framework/internal-hiring-process.md], facts: [["6 months", "six months"]]}
   - {ask: "In talent assessments, roughly what share of team members are expected to be rated Developing?", as: erin, expect: [gitlab-handbook/people-group/talent-assessment.md], facts: ["10%"]}
 
+  # ---- company history (dave): vocabulary mismatch, the page says "raised", not "funding"
+  - {ask: "What are GitLab's funding sources?", as: dave, expect: [gitlab-handbook/company/history.md], facts: [["426", "Y Combinator"]]}
+
   # ---- leadership only (alice)
   - {ask: "What is the most a team member may give in gifts per person per calendar year?", as: alice, expect: [gitlab-handbook/legal/policies/gifts-contributions.md], facts: ["75"]}
   - {ask: "What is the maximum value of a single prize in a UX research prize draw?", as: alice, expect: [gitlab-handbook/legal/process-for-ux-research-prize-draws/index.md], facts: ["600"]}

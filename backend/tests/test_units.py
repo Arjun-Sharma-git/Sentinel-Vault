@@ -232,3 +232,35 @@ def test_a_rewritten_question_is_gated_again(api, monkeypatch):
     assert response.status_code == 200
     assert '"type": "rewrite"' in response.text
     assert '"allowed": false' in response.text
+
+
+def test_a_reply_ending_in_no_answer_is_not_found():
+    from app.answer import verify
+
+    raw = "The sources do not name the CEO. Sid co-founded GitLab [S1].\nNO_ANSWER"
+    result = verify(raw, 3)
+    assert result.no_answer and result.cited == [] and "NO_ANSWER" not in result.text
+
+
+def test_hedged_refusals_are_recognised():
+    from app.answer import verify
+
+    for raw in (
+        "The provided sources do not explicitly state the name of the CEO [S1].",
+        "The sources do not specify the funding sources [S2].",
+    ):
+        assert verify(raw, 3).no_answer
+
+
+def test_trivial_rewrites_are_ignored():
+    from app.pipeline import _words
+
+    assert _words("who is the ceo ?") == _words("Who is the CEO?")
+    assert _words("his mail") != _words("What is Sid Sijbrandij's email address?")
+
+
+def test_recheck_count_is_not_the_per_document_cap(api):
+    """Alice may read everything, so the final permission check removes nothing, however many
+    passages the per-document cap trims."""
+    result = api.ask("alice", "What does the engineering handbook say about on-call?")
+    assert result["steps"]["retrieve"]["data"]["dropped_by_recheck"] == 0

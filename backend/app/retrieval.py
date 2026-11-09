@@ -175,6 +175,7 @@ class Retriever:
         # Second check, on exactly the folders that are about to reach the model.
         confirmed = await self.authz.check_folders(user_id, {p.folder_id for p in passages}, "viewer")
         kept = [p for p in passages if p.folder_id in confirmed and p.folder_id in allowed]
+        dropped = len(passages) - len(kept)  # counted here: the cap below also shortens `kept`
         timings["recheck_ms"] = _ms(start)
 
         skip = getattr(self.reranker, "english_only", False) and mostly_non_latin(question)
@@ -195,7 +196,7 @@ class Retriever:
             allowed,
             len(dense),
             len(lexical),
-            dropped_by_recheck=len(passages) - len(kept),
+            dropped_by_recheck=dropped,
             timings_ms=timings,
         )
 

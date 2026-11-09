@@ -27,6 +27,13 @@ _SENT_CITE = re.compile(r"\[S(\d+)\]")
 _NODE_CITE = re.compile(r"\(S(\d+)\)")
 # A mermaid node definition: id followed by a shape holding the label, e.g. A["..."], B{...}, C(...)
 _NODE = re.compile(r'\b([A-Za-z][\w-]*)\s*(?:\[\[|\[\(|\(\(|\[|\(|\{\{|\{|>)\s*(?:"([^"]*)"|([^\]\)\}"]+))')
+# Sentences about the sources themselves ("Source S6 refers to the CEO but doesn't name them"):
+# no document can support them, so they are left unjudged rather than flagged.
+_ABOUT_SOURCES = re.compile(
+    r"\b(source|sources|passage|passages)\s+S?\d+\b|\bS\d+\b"
+    r"|\b(the|these|provided|given)\s+(provided\s+|given\s+)?(sources|passages|documents)\b",
+    re.IGNORECASE,
+)
 _SENTENCE_END = re.compile(r"(?<=[.!?।])\s+")
 
 SCHEMA = {
@@ -100,7 +107,7 @@ def extract_claims(text: str, n_sources: int) -> list[Claim]:
         for sentence in _SENTENCE_END.split(line):
             nums = _SENT_CITE.findall(sentence)
             body = _clean(sentence)
-            if nums and len(body) > 3:
+            if nums and len(body) > 3 and not _ABOUT_SOURCES.search(body):
                 claims.append(Claim(len(claims) + 1, "sentence", body, valid(nums)))
     for diagram in _FENCE.findall(text):
         seen: set[str] = set()

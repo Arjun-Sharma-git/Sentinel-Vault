@@ -13,6 +13,7 @@ Events: start, step (one per stage, possibly "running" first), token*, answer, d
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -51,6 +52,10 @@ def step(step_id: str, status: str, summary: str, data: Any = None, ms: float | 
         "data": data,
         "ms": ms,
     }
+
+
+def _words(text: str) -> str:
+    return " ".join(re.findall(r"\w+", text.lower()))
 
 
 def _ms(start: float) -> float:
@@ -92,6 +97,8 @@ async def answer_question(
         # A follow-up ("his email?") is rewritten to stand alone, then gated again: the
         # rewrite is model output built from earlier answers, so it gets no free pass.
         question = await standalone_question(services.llm, question, history)
+        if _words(question) == _words(asked):
+            question = asked  # "who is the ceo" -> "Who is the CEO?" changes nothing
         if question != asked:
             yield {"type": "rewrite", "question": question}
             verdict = await services.gate.check(question)
