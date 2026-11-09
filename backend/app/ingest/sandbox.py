@@ -106,6 +106,9 @@ def _child_env(offline: bool) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not any(marker in k.upper() for marker in SECRET_MARKERS)}
     if offline:
         env["HF_HUB_OFFLINE"] = "1"  # use cached models; don't try (and time out on) the network
+    # OpenBLAS reserves a buffer per thread and defaults to one thread per core: 16 cores put the
+    # child at ~9.4 GB of address space, over the parse_memory_mb cap. Four threads stay ~5 GB.
+    env.setdefault("OPENBLAS_NUM_THREADS", "4")
     return env
 
 
