@@ -21,10 +21,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import audit, grounding
-from .answer import LlmError, build_messages, extractive_answer, verify
+from .answer import LlmError, build_messages, extractive_answer, standalone_question, verify
 from .models import User
 from .retrieval import Passage
 from .services import Services
+from .sources import label_passages
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +71,30 @@ def citation(n: int, passage: Passage) -> dict[str, Any]:
 
 
 async def answer_question(
-    services: Services, db: AsyncSession, user: User, question: str, within: set[str] | None = None
+    services: Services,
+    db: AsyncSession,
+    user: User,
+    question: str,
+    within: set[str] | None = None,
+    history: list[tuple[str, str]] | None = None,
 ) -> AsyncIterator[Event]:
-    """`within`: folder ids to search (the folders of the knowledge sources the user picked)."""
+    """`within`: folder ids to search (the folders of the knowledge sources the user picked).
+    `history`: earlier (question, answer) pairs of this conversation, to resolve follow-ups."""
     request_id = uuid.uuid4().hex[:12]
     started = time.perf_counter()
     yield {"type": "start", "request_id": request_id}
 
     # 1. Gate ------------------------------------------------------------------------------
     t = time.perf_counter()
+    asked = question
     verdict = await services.gate.check(question)
+    if verdict.allowed and history:
+        # A follow-up ("his email?") is rewritten to stand alone, then gated again: the
+        # rewrite is model output built from earlier answers, so it gets no free pass.
+        question = await standalone_question(services.llm, question, history)
+        if question != asked:
+            yield {"type": "rewrite", "question": question}
+            verdict = await services.gate.check(question)
     limits = verdict.thresholds or services.gate.thresholds_for(verdict.profile)
     gate_data = {
         "engine": verdict.engine,
@@ -116,7 +131,8 @@ async def answer_question(
             user.id,
             "query",
             outcome="denied",
-            question=question,
+            question=asked,
+            searched_as=question if question != asked else None,
             reasons=verdict.reasons,
             request_id=request_id,
             gate=gate_audit,
@@ -150,6 +166,7 @@ async def answer_question(
         result.timings_ms.get("authz_ms"),
     )
     passages = result.passages
+    label_passages(passages)
     yield step(
         "retrieve",
         "pass" if passages else "warn",
@@ -270,7 +287,8 @@ async def answer_question(
         db,
         user.id,
         "query",
-        question=question,
+        question=asked,
+        searched_as=question if question != asked else None,
         request_id=request_id,
         folders=sorted(result.allowed_folders),
         documents=sorted({c["document_id"] for c in cited}),

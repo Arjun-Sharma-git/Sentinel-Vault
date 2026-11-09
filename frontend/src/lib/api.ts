@@ -114,12 +114,13 @@ export async function ask(
   onEvent: (event: AskEvent) => void,
   signal?: AbortSignal,
   sources?: string[],
+  history: { question: string; answer: string }[] = [],
 ) {
   const res = await fetch('/api/ask', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { ...BASE_HEADERS, 'Content-Type': 'application/json' },
-    body: JSON.stringify(sources?.length ? { question, sources } : { question }),
+    body: JSON.stringify({ question, ...(sources?.length ? { sources } : {}), ...(history.length ? { history } : {}) }),
     signal,
   })
   if (!res.ok || !res.body) {

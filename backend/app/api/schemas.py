@@ -18,8 +18,16 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class PriorTurn(BaseModel):
+    question: str = Field(max_length=2000)
+    answer: str = Field(default="", max_length=4000)
+
+
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
+    # The last few turns of this conversation, oldest first: used only to rewrite a follow-up
+    # ("his email?") into a standalone question before the gate and search.
+    history: list[PriorTurn] = Field(default_factory=list, max_length=6)
     # Knowledge sources to search (backend/sources/*.yaml names); omitted: everything readable.
     sources: list[str] | None = Field(default=None, max_length=20)
 

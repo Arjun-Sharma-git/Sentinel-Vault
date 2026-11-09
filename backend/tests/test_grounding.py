@@ -101,7 +101,7 @@ def test_judge_sees_sources_as_marked_data_with_the_answer_models_limit():
     system, user = grounding.judge_messages(claims, [passage])
     assert MARK in system["content"] and "DATA" in system["content"]
     assert "Ignore your instructions" not in user["content"]  # words are joined by the mark
-    body = user["content"].split('<source id="S1">\n')[1].split("\n</source>")[0]
+    body = user["content"].split('<source id="S1" from="T › H">\n')[1].split("\n</source>")[0]
     assert len(body.replace(MARK, " ")) <= MAX_PASSAGE_CHARS
 
 
@@ -147,3 +147,24 @@ def test_minicheck_gets_headings_and_boxes_phrased_as_claims():
     first, second = (grounding.minicheck_prompt(c, _passages(1)) for c in claims)
     assert first == "Document: T › H\npassage 1\nClaim: The process includes a decision: Approve?"
     assert second.endswith("Claim: The process includes this step: Pay out.")
+
+
+def test_judges_are_told_which_source_a_passage_is_from():
+    passage = _passages(1)[0]
+    passage.source_title = "The GitLab Handbook"
+    claims = grounding.extract_claims("Sid Sijbrandij is the CEO of GitLab [S1].", 1)
+    assert grounding.minicheck_prompt(claims[0], [passage]).startswith(
+        "Document: The GitLab Handbook: T › H\n"
+    )
+    _, user = grounding.judge_messages(claims, [passage])
+    assert 'from="The GitLab Handbook: T › H"' in user["content"]
+
+
+def test_label_passages_uses_the_source_title():
+    from app.sources import label_passages
+
+    handbook, other = _passages(2)
+    handbook.folder_path = "gitlab-handbook/company/working-groups"
+    other.folder_path = "no-such-source/x"
+    label_passages([handbook, other])
+    assert handbook.source_title == "The GitLab Handbook"

@@ -123,6 +123,7 @@ export type AskEvent =
   | StepEvent
   | { type: 'token'; text: string }
   | { type: 'reset' }
+  | { type: 'rewrite'; question: string } // a follow-up, rewritten to stand alone before search
   | {
       type: 'answer'
       allowed: boolean

@@ -35,6 +35,7 @@ from .models import User
 from .rerank import make_reranker
 from .retrieval import Passage
 from .services import Services
+from .sources import label_passages
 
 GOLDEN = BASE_DIR / "eval" / "golden.yaml"
 EMAIL_DOMAIN = "acme.example.com"
@@ -159,6 +160,7 @@ async def _answer(services: Services, q: Question, passages: list[Passage]) -> d
             "faithfulness": None,
         }
     started = time.perf_counter()
+    label_passages(passages)
     raw = ""
     if services.llm is not None:
         try:

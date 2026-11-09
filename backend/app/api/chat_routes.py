@@ -65,7 +65,9 @@ async def ask(body: AskRequest, user: CurrentUser, services: Svc) -> StreamingRe
         try:
             # The stream outlives the request-scoped session, so it opens its own.
             async with session_factory()() as db:
-                async for event in answer_question(services, db, user, body.question, within):
+                async for event in answer_question(
+                    services, db, user, body.question, within, [(t.question, t.answer) for t in body.history]
+                ):
                     yield f"event: {event['type']}\ndata: {json.dumps(event, default=str)}\n\n"
         finally:
             slots.release(user.id)

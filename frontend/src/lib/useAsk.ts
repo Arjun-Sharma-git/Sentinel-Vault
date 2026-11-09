@@ -9,6 +9,7 @@ export type Turn = {
   question: string
   sources?: string[] // the knowledge sources searched; undefined means all
   requestId?: string
+  searchedAs?: string // the follow-up rewritten to stand alone, when it was
   steps: Partial<Record<StepId, StepEvent>>
   text: string // streamed answer text; replaced by the verified text at the end
   final?: {
@@ -32,6 +33,8 @@ function apply(turn: Turn, event: AskEvent): Turn {
       return { ...turn, steps: { ...turn.steps, [event.id]: event } }
     case 'token':
       return { ...turn, text: turn.text + event.text }
+    case 'rewrite':
+      return { ...turn, searchedAs: event.question }
     case 'reset':
       return { ...turn, text: '' }
     case 'answer':
@@ -53,6 +56,17 @@ function apply(turn: Turn, event: AskEvent): Turn {
   }
 }
 
+/** The last answered turns, for resolving a follow-up ("his email?"). Diagrams are left out. */
+function conversation(turns: Turn[]) {
+  return turns
+    .filter((t) => t.final?.allowed && !t.final.noAnswer && t.text)
+    .slice(-3)
+    .map((t) => ({
+      question: t.searchedAs ?? t.question,
+      answer: t.text.replace(/```[\s\S]*?```/g, '').slice(0, 1500),
+    }))
+}
+
 export function useAsk() {
   const queryClient = useQueryClient()
   const [turns, setTurns] = useState<Turn[]>([])
@@ -64,10 +78,11 @@ export function useAsk() {
     if (!question || running) return
     const controller = new AbortController()
     abort.current = controller
+    const history = conversation(turns)
     setTurns((all) => [...all, { question, sources, steps: {}, text: '' }])
     const update = (fn: (t: Turn) => Turn) => setTurns((all) => [...all.slice(0, -1), fn(all[all.length - 1])])
     try {
-      await ask(question, (event) => update((t) => apply(t, event)), controller.signal, sources)
+      await ask(question, (event) => update((t) => apply(t, event)), controller.signal, sources, history)
       queryClient.invalidateQueries({ queryKey: ['audit'] })
     } catch (err) {
       if ((err as Error).name === 'AbortError') update((t) => ({ ...t, error: 'Stopped.' }))

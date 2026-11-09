@@ -454,3 +454,15 @@ def source_of(path: str, all_sources: dict[str, Source]) -> str | None:
         if source.folder == ".":
             return source.name
     return None
+
+
+def label_passages(passages: list) -> None:  # noqa: ANN001  (retrieval.Passage; avoids an import cycle)
+    """Set each passage's source title, so a judge reading it knows whose document it is.
+
+    A passage says "CEO" in a table; only the source ("The GitLab Handbook") says of which
+    company. Without it, a strict fact checker rejects "X is the CEO of GitLab".
+    """
+    all_sources = load_sources()
+    for passage in passages:
+        name = source_of(passage.folder_path, all_sources)
+        passage.source_title = all_sources[name].title if name else None

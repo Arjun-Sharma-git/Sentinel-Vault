@@ -116,10 +116,18 @@ def extract_claims(text: str, n_sources: int) -> list[Claim]:
     return claims
 
 
+def _origin(p: Passage) -> str:
+    """Where a passage comes from, as one line: "The GitLab Handbook: Incentives › Manager Process"."""
+    where = f"{p.document_title} › {p.heading}" if p.heading else p.document_title
+    return f"{p.source_title}: {where}" if p.source_title else where
+
+
 def judge_messages(claims: list[Claim], passages: list[Passage]) -> list[dict[str, str]]:
     used = sorted({n for c in claims for n in c.sources})
     sources = "\n\n".join(
-        f'<source id="S{n}">\n{datamark(passages[n - 1].text[:MAX_PASSAGE_CHARS])}\n</source>' for n in used
+        f'<source id="S{n}" from="{_origin(passages[n - 1])}">\n'
+        f"{datamark(passages[n - 1].text[:MAX_PASSAGE_CHARS])}\n</source>"
+        for n in used
     )
     listed = "\n".join(f"{c.id}. {c.text}  (cites {', '.join(f'S{n}' for n in c.sources)})" for c in claims)
     return [
@@ -166,7 +174,7 @@ def minicheck_prompt(claim: Claim, passages: list[Passage]) -> str:
     box is a label, not a sentence, so it is phrased as the claim it makes about the process.
     """
     cited = [passages[n - 1] for n in claim.sources]
-    document = "\n\n".join(f"{p.document_title} › {p.heading}\n{p.text[:MAX_PASSAGE_CHARS]}" for p in cited)
+    document = "\n\n".join(f"{_origin(p)}\n{p.text[:MAX_PASSAGE_CHARS]}" for p in cited)
     statement = claim.text
     if claim.kind == "node":
         label = claim.text.rstrip("?").strip()

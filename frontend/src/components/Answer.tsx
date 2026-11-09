@@ -113,6 +113,11 @@ export function AnswerCard({ turn, sources }: { turn: Turn; sources?: SourceInfo
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-ink px-5 py-3 text-[15px] text-paper">
           {turn.question}
+          {turn.searchedAs && (
+            <span className="mt-1 block text-[11px] text-paper/70" title="Your follow-up, rewritten using the conversation">
+              searched as: {turn.searchedAs}
+            </span>
+          )}
           {searched.length > 0 && <span className="mt-1 block text-[11px] text-paper/55">in {searched.join(', ')}</span>}
         </div>
       </div>

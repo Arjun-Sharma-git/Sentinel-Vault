@@ -81,6 +81,7 @@ class Passage:
     score: float
     via: list[str] = field(default_factory=list)  # "dense", "full-text"
     rerank_score: float | None = None  # cross-encoder relevance in [0, 1], when reranked
+    source_title: str | None = None  # "The GitLab Handbook": set by sources.label_passages
 
     def for_rerank(self) -> str:
         return f"{self.document_title}\n{self.heading}\n{self.text}".strip()
