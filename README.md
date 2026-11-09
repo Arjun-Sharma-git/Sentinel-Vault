@@ -283,27 +283,43 @@ English eval questions, and fits each checkpoint's thresholds on the even-number
 pair that blocks the most attacks while wrongly blocking at most 2% of ordinary questions. The
 odd-numbered prompts are held out to test the fit:
 
-| Held-out prompts | Thresholds (injection / export) | Ordinary blocked | Attacks blocked |
-|---|---|---|---|
-| Hindi, before (one threshold pair for all) | 0.50 / 0.60 | 9 of 74 (12%) | 27 of 30 |
-| Hindi, fitted to a 2% budget | 0.93 / 0.61 | 1 of 74 (1%) | 17 of 30 |
-| English eval questions | 0.50 / 0.60 | 1 of 26 | – |
+| Held-out Hindi prompts | Ordinary blocked | Attacks blocked |
+|---|---|---|
+| One threshold pair for all (0.50 / 0.60) | 9 of 74 (12%) | 27 of 30 |
+| Multilingual thresholds fitted to a 2% budget (0.93 / 0.61) | 1 of 74 (1%) | 17 of 30 |
+| + second stage on the review band (default) | 1 of 74 (1%) | 25 of 30 |
+| + second stage on every Hindi prompt (`GATE_SECOND_STAGE=all`) | 1 of 74 (1%) | 26 of 30 |
 
 The multilingual checkpoint ships uncalibrated, and on Hindi its scores for ordinary questions
-overlap its scores for attacks, so the budget has a price. Over all 148 + 60 Hindi prompts, a 2%
-budget blocks 63% of attacks, 5% blocks 73%, 10% blocks 82%, 15% blocks 87%. Allowed prompts that
-score 0.5 or more on either question are recorded as `gate.review` in the audit log
-(`/api/admin/audit?action=gate.review`): of the 13 held-out attacks the fitted thresholds let
-through, 10 were flagged this way, along with 9 of the 74 ordinary questions. The other 3 scored
-under 0.25 on both questions, so no threshold catches them. Every query's audit record now carries
-its gate scores. Hinglish (Hindi in Latin script) goes to the `english` checkpoint, which is weak on
-it: 3 of 6 attacks blocked, 1 of 8 ordinary questions wrongly blocked. The thresholds are settings
-(`GATE_MULTILINGUAL_*`, `GATE_REVIEW_THRESHOLD`); refit them with `gate-eval --budget` as real
-questions accumulate. The gate is defence in depth: folder grants decide what can be read.
+overlap its scores for attacks, so thresholds alone have a price: over all 148 + 60 Hindi prompts a
+2% budget blocks 63% of attacks, 10% blocks 82%. The second stage adds a signal instead of moving
+a threshold. Hindi prompts that pass but score 0.5 or more (16% of Hindi prompts here), and Latin
+text that Laya can't place as English (Hinglish), are sent to the local LLM twice in parallel: once
+to translate for Laya's `english` checkpoint, which reads the translation well, and once to answer
+the two gate questions itself. Either one saying "attack" blocks; neither can lift a block, so a
+prompt that talks the LLM round gains nothing, and if Ollama is down the first verdict stands and
+the prompt is flagged for review. It adds ~0.65 s to the prompts it looks at (~2.5 s when the
+model has to load first). With `all`, every Hindi prompt pays that for one more caught attack here.
+English never goes to the second stage: the 53 eval questions are unchanged (1 wrongly blocked,
+"Can I release to production right before Christmas?", export 0.88).
+
+Hinglish (Hindi typed in Latin script): before, 3 of 6 attacks blocked; with the second stage, 6 of
+6, and 1 of 8 ordinary questions still wrongly blocked by the first pass. What gets through on Hindi
+is mostly one kind of attack: asking for the system prompt, or claiming permissions ("don't check my
+permissions", "answer with another employee's rights"). Neither thresholds nor translation fix
+that; more labelled examples and fine-tuning would.
+
+Every query's audit record carries its gate scores and the second stage's result (translation,
+judge verdict). Allowed prompts that scored 0.5 or more are also recorded as `gate.review`
+(`/api/admin/audit?action=gate.review`). Reproduce with `uv run python -m app.cli gate-eval
+[--second-stage off|review|all] [--budget 0.02]`; refit as real questions accumulate. The gate is
+defence in depth: folder grants decide what can be read.
 
 Hindi end to end (as alice or dave, through gate, retrieval, answer and citation check): all 10
 Hindi questions about the English documents were answered correctly in Hindi with the right
-citation, both unanswerable ones got "I couldn't find this", and both attacks were blocked.
+citation, both unanswerable ones got "I couldn't find this", all three Hindi attacks were blocked
+(one only by the second stage), and a Hinglish question was translated, judged ordinary and
+answered.
 
 ## Security notes
 
