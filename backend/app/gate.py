@@ -41,6 +41,12 @@ QUESTIONS = {
 }
 
 
+@dataclass(frozen=True)
+class Thresholds:
+    injection: float
+    exfiltration: float
+
+
 @dataclass
 class GateVerdict:
     allowed: bool
@@ -49,12 +55,22 @@ class GateVerdict:
     engine: str
     latency_ms: float
     reasons: list[str]
+    profile: str = "default"  # which thresholds applied: english | multilingual | default
+    thresholds: Thresholds | None = None
+    review: bool = False  # allowed, but close enough to a threshold to be worth a look
+
+
+@dataclass(frozen=True)
+class GateScores:
+    injection: float
+    exfiltration: float
+    profile: str = "default"
 
 
 class GateEngine(Protocol):
     name: str
 
-    def score(self, prompt: str) -> dict[str, float]: ...
+    def score(self, prompt: str) -> GateScores: ...
 
 
 class LayaGate:
@@ -78,10 +94,15 @@ class LayaGate:
         self._router.preload(self.CHECKPOINTS)
         self._lock = threading.Lock()  # one forward pass at a time
 
-    def score(self, prompt: str) -> dict[str, float]:
+    def score(self, prompt: str) -> GateScores:
         with self._lock:
             out = self._router.predict({"user_message": prompt}, QUESTIONS)
-        return {name: float(out["answers"][name]["noul"]) for name in QUESTIONS}
+        answers = out["answers"]
+        return GateScores(
+            float(answers["prompt_injection"]["noul"]),
+            float(answers["bulk_exfiltration"]["noul"]),
+            str(out.get("routing", {}).get("model") or "english"),
+        )
 
 
 class HeuristicGate:
@@ -113,46 +134,88 @@ class HeuristicGate:
                 p_false *= 1 - weight
         return round(1 - p_false, 4)
 
-    def score(self, prompt: str) -> dict[str, float]:
-        return {
-            "prompt_injection": self._noisy_or(prompt, self.INJECTION, 0.75),
-            "bulk_exfiltration": self._noisy_or(prompt, self.EXFILTRATION, 0.55),
-        }
+    def score(self, prompt: str) -> GateScores:
+        return GateScores(
+            self._noisy_or(prompt, self.INJECTION, 0.75),
+            self._noisy_or(prompt, self.EXFILTRATION, 0.55),
+        )
 
 
 class PromptGate:
-    def __init__(self, engine: GateEngine | None, injection_threshold: float, exfil_threshold: float):
+    """Applies thresholds to the engine's scores. `per_profile` overrides the defaults for a
+    checkpoint (Laya's `multilingual` scores run higher on ordinary text than `english`, so it
+    gets its own, fitted with `app.cli gate-eval`). A prompt that is allowed but scores at least
+    `review_threshold` on either question is marked for review in the audit log."""
+
+    def __init__(
+        self,
+        engine: GateEngine | None,
+        injection_threshold: float,
+        exfil_threshold: float,
+        per_profile: dict[str, Thresholds] | None = None,
+        review_threshold: float | None = None,
+    ):
         self.engine = engine
-        self.injection_threshold = injection_threshold
-        self.exfil_threshold = exfil_threshold
+        self.default = Thresholds(injection_threshold, exfil_threshold)
+        self.per_profile = dict(per_profile or {})
+        self.review_threshold = review_threshold
 
     @property
     def name(self) -> str:
         return self.engine.name if self.engine else "off"
+
+    # Kept for callers that show the default thresholds.
+    @property
+    def injection_threshold(self) -> float:
+        return self.default.injection
+
+    @property
+    def exfil_threshold(self) -> float:
+        return self.default.exfiltration
+
+    def thresholds_for(self, profile: str) -> Thresholds:
+        return self.per_profile.get(profile, self.default)
+
+    def judge(self, scores: GateScores) -> tuple[list[str], Thresholds, bool]:
+        limits = self.thresholds_for(scores.profile)
+        reasons = []
+        if scores.injection >= limits.injection:
+            reasons.append(f"Looks like a prompt-injection attempt (p={scores.injection:.2f})")
+        if scores.exfiltration >= limits.exfiltration:
+            reasons.append(f"Looks like a bulk-export request (p={scores.exfiltration:.2f})")
+        review = (
+            not reasons
+            and self.review_threshold is not None
+            and max(scores.injection, scores.exfiltration) >= self.review_threshold
+        )
+        return reasons, limits, review
 
     async def check(self, prompt: str) -> GateVerdict:
         if self.engine is None:
             return GateVerdict(True, 0.0, 0.0, "off", 0.0, [])
         start = time.perf_counter()
         scores = await asyncio.to_thread(self.engine.score, prompt)
-        injection, exfil = scores["prompt_injection"], scores["bulk_exfiltration"]
-        reasons = []
-        if injection >= self.injection_threshold:
-            reasons.append(f"Looks like a prompt-injection attempt (p={injection:.2f})")
-        if exfil >= self.exfil_threshold:
-            reasons.append(f"Looks like a bulk-export request (p={exfil:.2f})")
+        reasons, limits, review = self.judge(scores)
         return GateVerdict(
             not reasons,
-            injection,
-            exfil,
+            scores.injection,
+            scores.exfiltration,
             self.engine.name,
             round((time.perf_counter() - start) * 1000, 1),
             reasons,
+            scores.profile,
+            limits,
+            review,
         )
 
 
 def build_gate(
-    engine: str, injection_threshold: float, exfil_threshold: float, torch_device: str = "cpu"
+    engine: str,
+    injection_threshold: float,
+    exfil_threshold: float,
+    torch_device: str = "cpu",
+    per_profile: dict[str, Thresholds] | None = None,
+    review_threshold: float | None = None,
 ) -> PromptGate:
     chosen: GateEngine | None = None
     if engine == "laya":
@@ -167,4 +230,4 @@ def build_gate(
             chosen = HeuristicGate()
     elif engine == "heuristic":
         chosen = HeuristicGate()
-    return PromptGate(chosen, injection_threshold, exfil_threshold)
+    return PromptGate(chosen, injection_threshold, exfil_threshold, per_profile, review_threshold)

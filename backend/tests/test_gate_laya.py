@@ -5,7 +5,8 @@ import os
 
 import pytest
 
-from app.gate import LayaGate, PromptGate
+from app.config import get_settings
+from app.gate import LayaGate, PromptGate, Thresholds
 
 
 @pytest.fixture(scope="module")
@@ -14,7 +15,13 @@ def gate():
         engine = LayaGate(device=os.environ.get("TEST_LAYA_DEVICE", "cpu"))
     except Exception as exc:  # not downloaded, laya missing
         pytest.skip(f"Laya unavailable: {exc}")
-    return PromptGate(engine, injection_threshold=0.5, exfil_threshold=0.6)
+    s = get_settings()  # the thresholds that ship, including the multilingual ones
+    multilingual = Thresholds(
+        s.gate_multilingual_injection_threshold, s.gate_multilingual_exfiltration_threshold
+    )
+    return PromptGate(
+        engine, s.gate_injection_threshold, s.gate_exfiltration_threshold, {"multilingual": multilingual}
+    )
 
 
 ALLOWED = [

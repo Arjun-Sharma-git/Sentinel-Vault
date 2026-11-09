@@ -126,6 +126,19 @@ def test_queries_are_audited(api):
     assert any(e["detail"].get("question") == "How many days of PTO do we get?" for e in events)
 
 
+def test_borderline_prompts_are_logged_for_review(api):
+    # The test gate is the heuristic one: "export" scores 0.56 on bulk export, under the 0.6
+    # threshold but over the 0.5 review line, so the question is answered and also flagged.
+    question = "Can I export my own PTO calendar to my phone?"
+    result = api.ask("dave", question)
+    assert result["answer"]["allowed"] is True
+    assert result["steps"]["gate"]["data"]["review"] is True
+    events = api.get("alice", "/api/admin/audit?action=gate.review&limit=5").json()
+    assert any(e["detail"].get("question") == question for e in events)
+    query = api.get("alice", "/api/admin/audit?action=query&limit=5").json()
+    assert any(e["detail"].get("gate", {}).get("exfiltration", 0) > 0.5 for e in query)
+
+
 def test_security_headers(api):
     response = api.get(None, "/api/health")
     assert response.headers["x-frame-options"] == "DENY"

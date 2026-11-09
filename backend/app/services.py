@@ -13,7 +13,7 @@ from .authz.factory import build_authz
 from .config import Settings
 from .devices import resolve_device
 from .embeddings import Embedder, HashEmbedder, OllamaEmbedder
-from .gate import PromptGate, build_gate
+from .gate import PromptGate, Thresholds, build_gate
 from .ingest.indexer import Indexer
 from .ingest.sandbox import IsolatedParser, ParseLimits
 from .rerank import build_reranker
@@ -72,6 +72,13 @@ async def build_services(
         settings.gate_injection_threshold,
         settings.gate_exfiltration_threshold,
         device.torch_device,
+        per_profile={
+            "multilingual": Thresholds(
+                settings.gate_multilingual_injection_threshold,
+                settings.gate_multilingual_exfiltration_threshold,
+            )
+        },
+        review_threshold=settings.gate_review_threshold,
     )
     llm = (
         OllamaChat(

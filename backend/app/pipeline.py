@@ -79,14 +79,19 @@ async def answer_question(
     # 1. Gate ------------------------------------------------------------------------------
     t = time.perf_counter()
     verdict = await services.gate.check(question)
+    limits = verdict.thresholds or services.gate.thresholds_for(verdict.profile)
     gate_data = {
         "engine": verdict.engine,
+        "profile": verdict.profile,
         "injection": verdict.injection,
         "exfiltration": verdict.exfiltration,
-        "thresholds": {
-            "injection": services.gate.injection_threshold,
-            "exfiltration": services.gate.exfil_threshold,
-        },
+        "thresholds": {"injection": limits.injection, "exfiltration": limits.exfiltration},
+        "review": verdict.review,
+    }
+    gate_audit = {
+        "profile": verdict.profile,
+        "injection": round(verdict.injection, 3),
+        "exfiltration": round(verdict.exfiltration, 3),
     }
     if not verdict.allowed:
         yield step("gate", "fail", verdict.reasons[0], gate_data, _ms(t))
@@ -107,14 +112,21 @@ async def answer_question(
             question=question,
             reasons=verdict.reasons,
             request_id=request_id,
+            gate=gate_audit,
         )
         yield step("audit", "pass", f"Recorded {request_id}")
         yield {"type": "done", "request_id": request_id, "outcome": "denied", "latency_ms": _ms(started)}
         return
+    if verdict.review:
+        # Allowed, but close to a threshold: kept for an admin to look at (and to refit with).
+        await audit.record(
+            db, user.id, "gate.review", question=question, request_id=request_id, gate=gate_audit
+        )
     yield step(
         "gate",
         "pass",
-        f"injection {verdict.injection:.2f} · bulk export {verdict.exfiltration:.2f}",
+        f"injection {verdict.injection:.2f} · bulk export {verdict.exfiltration:.2f}"
+        + (" · flagged for review" if verdict.review else ""),
         gate_data,
         _ms(t),
     )
@@ -223,6 +235,7 @@ async def answer_question(
         folders=sorted(result.allowed_folders),
         documents=sorted({c["document_id"] for c in cited}),
         provider=provider,
+        gate=gate_audit,
     )
     yield step("audit", "pass", f"Recorded {request_id}")
     yield {"type": "done", "request_id": request_id, "outcome": "answered", "latency_ms": _ms(started)}

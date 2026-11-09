@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     torch_device: Literal["cpu", "rocm", "cuda"] = "cpu"
     gate_injection_threshold: float = 0.5
     gate_exfiltration_threshold: float = 0.6
+    # Laya's multilingual checkpoint (Hindi and other non-Latin scripts) scores ordinary text
+    # higher, so it gets its own thresholds, fitted with `app.cli gate-eval` to wrongly block at
+    # most ~2% of ordinary Hindi questions. That lets more attacks through (see README).
+    gate_multilingual_injection_threshold: float = 0.93
+    gate_multilingual_exfiltration_threshold: float = 0.61
+    # Allowed prompts scoring at least this on either question are logged as `gate.review`.
+    gate_review_threshold: float | None = 0.5
 
     # ---- Library and retrieval --------------------------------------------------------
     library_dir: Path = REPO_DIR / "data" / "library"
