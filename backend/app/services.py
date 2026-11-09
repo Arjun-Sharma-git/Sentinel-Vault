@@ -36,6 +36,7 @@ class Services:
     indexer: Indexer
 
     async def close(self) -> None:
+        await self.gate.close()
         await self.vectors.close()
         await self.embedder.close()
         if self.llm:
@@ -79,6 +80,10 @@ async def build_services(
             )
         },
         review_threshold=settings.gate_review_threshold,
+        second_stage=settings.gate_second_stage,
+        llm_url=settings.ollama_url,
+        llm_model=settings.gate_second_stage_model or settings.llm_model,
+        second_stage_timeout=settings.gate_second_stage_timeout_seconds,
     )
     llm = (
         OllamaChat(

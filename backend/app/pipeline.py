@@ -93,6 +93,9 @@ async def answer_question(
         "injection": round(verdict.injection, 3),
         "exfiltration": round(verdict.exfiltration, 3),
     }
+    if verdict.second_stage is not None:
+        gate_data["second_stage"] = verdict.second_stage
+        gate_audit["second_stage"] = verdict.second_stage
     if not verdict.allowed:
         yield step("gate", "fail", verdict.reasons[0], gate_data, _ms(t))
         for skipped in ("access", "retrieve", "generate", "verify"):

@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     gate_multilingual_exfiltration_threshold: float = 0.61
     # Allowed prompts scoring at least this on either question are logged as `gate.review`.
     gate_review_threshold: float | None = 0.5
+    # Second look by the local LLM (translate for Laya's english checkpoint + a direct judge) at
+    # Hindi prompts in the review band ("review") or every Hindi prompt ("all"), and at Latin text
+    # that isn't recognisably English (Hinglish). It can only add blocks. Needs GATE_ENGINE=laya.
+    gate_second_stage: Literal["off", "review", "all"] = "review"
+    gate_second_stage_model: str = ""  # default: LLM_MODEL
+    gate_second_stage_timeout_seconds: float = 15.0
 
     # ---- Library and retrieval --------------------------------------------------------
     library_dir: Path = REPO_DIR / "data" / "library"
