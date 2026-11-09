@@ -1,23 +1,19 @@
 // One question and its answer: streamed text with [S1] citation chips, then verified sources.
 
-import { Ban, FileText, SearchX, ShieldAlert } from 'lucide-react'
-import { Fragment, type ReactNode } from 'react'
+import { Ban, Check, Copy, FileText, SearchX, ShieldAlert } from 'lucide-react'
+import { useState } from 'react'
+import { Markdown, toClipboard } from './Markdown'
 import { sourceFor } from '../lib/sources'
 import type { Citation, SourceInfo } from '../lib/types'
 import type { Turn } from '../lib/useAsk'
 import { Badge, Card, Eyebrow, cn } from './ui'
 
-const CITE = /(\[S\d+\])/g
-
-function withCitations(text: string, cited: Set<number> | null): ReactNode[] {
-  return text.split(CITE).map((part, i) => {
-    const match = part.match(/^\[S(\d+)\]$/)
-    if (!match) return <Fragment key={i}>{part}</Fragment>
-    const n = Number(match[1])
+function citeChip(cited: Set<number> | null) {
+  return (n: number, key: number) => {
     const verified = cited === null || cited.has(n)
     return (
       <sup
-        key={i}
+        key={key}
         title={verified ? `Source ${n}` : 'Not a valid source: removed by verification'}
         className={cn(
           'ml-0.5 rounded-full px-1.5 py-px font-mono text-[10px] font-medium',
@@ -27,24 +23,35 @@ function withCitations(text: string, cited: Set<number> | null): ReactNode[] {
         {n}
       </sup>
     )
-  })
+  }
 }
 
-function Body({ text, cited }: { text: string; cited: Set<number> | null }) {
-  const lines = text.split('\n').filter((l) => l.trim())
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
   return (
-    <div className="space-y-2.5 text-[15px] leading-relaxed">
-      {lines.map((line, i) =>
-        /^\s*[-*•]\s/.test(line) ? (
-          <div key={i} className="flex gap-3">
-            <span aria-hidden className="mt-2.5 size-1.5 shrink-0 rounded-full bg-gold" />
-            <span>{withCitations(line.replace(/^\s*[-*•]\s/, ''), cited)}</span>
-          </div>
-        ) : (
-          <p key={i}>{withCitations(line, cited)}</p>
-        ),
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={copy}
+      className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-muted transition hover:border-gold hover:text-ink"
+      aria-label="Copy answer"
+    >
+      {copied ? <Check className="size-3.5 text-gold-deep" /> : <Copy className="size-3.5" />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
   )
 }
 
@@ -127,7 +134,7 @@ export function AnswerCard({ turn, sources }: { turn: Turn; sources?: SourceInfo
       ) : (
         <Card className="p-6">
           {turn.text ? (
-            <Body text={turn.text} cited={cited} />
+            <Markdown text={turn.text} cite={citeChip(cited)} className="select-text" />
           ) : (
             <div className="space-y-3">
               <div className="h-3 w-3/4 animate-pulse rounded-full bg-line" />
@@ -140,6 +147,11 @@ export function AnswerCard({ turn, sources }: { turn: Turn; sources?: SourceInfo
             </p>
           )}
           {final && final.citations.length > 0 && <Sources citations={final.citations} sources={sources} />}
+          {final && turn.text && (
+            <div className="mt-4 flex justify-end">
+              <CopyButton text={toClipboard(turn.text, final.citations)} />
+            </div>
+          )}
         </Card>
       )}
     </div>
