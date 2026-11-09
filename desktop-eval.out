@@ -1,0 +1,83 @@
+[1;32m==>[0m ROCm preflight
+[1;32m==>[0m /dev/kfd present; in render and video groups
+[1;32m==>[0m backend/.env existed; backed it up to /home/archer/Desktop/Sentinel-Vault/desktop-eval-logs/env.backup before overwriting
+[1;32m==>[0m Ollama models: qwen3.5:9b, qwen3-embedding:0.6b
+[1;32m==>[0m Starting ./run.sh --gpu rocm (log: /home/archer/Desktop/Sentinel-Vault/desktop-eval-logs/run.log). First run syncs ~9 GB of ROCm PyTorch.
+[1;32m==>[0m API is up
+torch 2.15.0+rocm7.14 hip 7.14.60850 gpu AMD Radeon RX 9070 XT
+[1;32m==>[0m download-docling
+Loading weights:   0%|          | 0/770 [00:00<?, ?it/s]Loading weights: 100%|██████████| 770/770 [00:00<00:00, 25041.59it/s]
+Docling's models are cached; PDF parsing works offline from now on.
+[1;32m==>[0m download-reranker
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights:  93%|█████████▎| 289/310 [00:00<00:00, 2874.45it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 2950.11it/s]
+qwen:Qwen3-Reranker-0.6B is cached.
+[1;32m==>[0m pytest (default authz)
+........................................................................ [ 94%]
+....                                                                     [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/archer/Desktop/Sentinel-Vault/backend/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_api_security.py::test_requests_without_a_session_are_rejected
+  /home/archer/Desktop/Sentinel-Vault/backend/app/vectorstore.py:57: UserWarning: Payload indexes have no effect in the local Qdrant, except text indexes with `scoring`, which enable text queries. Please use server Qdrant if you need payload indexes.
+    await self._client.create_payload_index(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+[1;32m==>[0m pytest (TEST_AUTHZ=sql)
+..............s.....ss.................................................. [ 94%]
+....                                                                     [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/archer/Desktop/Sentinel-Vault/backend/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_api_security.py::test_requests_without_a_session_are_rejected
+  /home/archer/Desktop/Sentinel-Vault/backend/app/vectorstore.py:57: UserWarning: Payload indexes have no effect in the local Qdrant, except text indexes with `scoring`, which enable text queries. Please use server Qdrant if you need payload indexes.
+    await self._client.create_payload_index(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+[1;32m==>[0m eval: off, cross-encoder, qwen + answers (log: /home/archer/Desktop/Sentinel-Vault/desktop-eval-logs/eval.log)
+/home/archer/Desktop/Sentinel-Vault/backend/app/vectorstore.py:35: UserWarning: Api key is used with an insecure connection.
+  return cls(AsyncQdrantClient(url=url, api_key=api_key, https=url.startswith("https")), collection)
+Laya unavailable (Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, set 'HF_HUB_OFFLINE=0' as environment variable.); using the heuristic gate. Download it with: uv run python -m app.cli download-laya
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 22831.15it/s]
+Reranker  unavailable (We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files.
+Check your internet connection or see how to run the library in offline mode at 'https://huggingface.co/docs/transformers/installation#offline-mode'.); results keep their fused order. Fetch it with: uv run python -m app.cli download-reranker
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 21616.89it/s]
+53 questions, top 8 passages
+
+| reranker | hit@1 | hit@3 | hit@8 | mrr | rerank_ms_mean | rerank_ms_p95 | retrieve_ms_mean | correct | false_refusals | correct_refusals | answer_ms_mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| off | 0.915 | 1.0 | 1.0 | 0.957 | 0.0 | 0.0 | 33.4 | 1.0 | 0.0 | 1.0 | 860.6 |
+| qwen:Qwen3-Reranker-0.6B | 0.957 | 1.0 | 1.0 | 0.975 | 111.3 | 76.7 | 145.5 | 1.0 | 0.0 | 1.0 | 668.1 |
+
+Not ranked first with off:
+  - [alice] Which wifi should visitors connect to?  (rank 2; top: ['general/travel-policy.md'])
+  - [alice] How are production releases rolled out?  (rank 2; top: ['engineering/release-process.md'])
+  - [alice] How much do we pay PayGate per year?  (rank 2; top: ['general/employee-handbook.md'])
+  - [dave] Do we get any days off besides PTO?  (rank 2; top: ['general/employee-handbook.md'])
+
+Not ranked first with qwen:Qwen3-Reranker-0.6B:
+  - [alice] How are production releases rolled out?  (rank 3; top: ['engineering/release-process.md'])
+  - [dave] Do we get any days off besides PTO?  (rank 2; top: ['general/employee-handbook.md'])
+
+full report: /home/archer/Desktop/Sentinel-Vault/backend/eval/results/eval-20261109-094100.json
+[1;32m==>[0m report: /home/archer/Desktop/Sentinel-Vault/backend/eval/results/eval-20261109-094100.json
+[1;32m==>[0m Updating the README's Evaluation section
+Answers on the desktop (Ryzen 7 9800X3D, RX 9070 XT with ROCm, `qwen3.5:9b`, top 8 passages, 53 questions; `--answers` scores facts present, correct document cited and correct refusals):
+
+| Reranker | hit@1 | hit@3 | hit@8 | mrr | rerank_ms_mean | rerank_ms_p95 | retrieve_ms_mean | correct | false_refusals | correct_refusals | answer_ms_mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| none (RRF only) | 0.915 | 1.0 | 1.0 | 0.957 | 0.0 | 0.0 | 33.4 | 1.0 | 0.0 | 1.0 | 860.6 |
+| qwen:Qwen3-Reranker-0.6B | 0.957 | 1.0 | 1.0 | 0.975 | 111.3 | 76.7 | 145.5 | 1.0 | 0.0 | 1.0 | 668.1 |
+
+ README.md | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+[main 7927dad] README: answer-quality eval results from the desktop (ROCm)
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+[1;32m==>[0m Pushing main to origin
+To https://github.com/Arjun-Sharma-git/Sentinel-Vault
+   8c09e01..7927dad  main -> main
+[1;32m==>[0m Done. Logs and the full eval report are in /home/archer/Desktop/Sentinel-Vault/desktop-eval-logs and backend/eval/results.
+[1;32m==>[0m Stopping the API and UI

@@ -84,8 +84,10 @@ class Source(BaseModel):
     name: str
     title: str
     folder: str  # top-level library folder, or "." for folders at the library root
+    description: str = ""  # one line for people choosing what to search
     license: str | None = None
     homepage: str | None = None
+    suggestions: list[str] = Field(default_factory=list, max_length=12)  # example questions for the UI
     fetch: Fetch | None = None  # None: the files are maintained in the library by hand
     convert: Literal["copy", "hugo-markdown"] = "copy"
     convert_options: dict[str, str] = Field(default_factory=dict)
@@ -441,3 +443,14 @@ async def source_folder_ids(db, names: list[str], all_sources: dict[str, Source]
         for f in (await db.scalars(select(Folder))).all()
         if any(in_source(f.path, source, all_sources) for source in chosen)
     }
+
+
+def source_of(path: str, all_sources: dict[str, Source]) -> str | None:
+    """Which source a library folder path belongs to (a named folder wins over the root source)."""
+    for source in all_sources.values():
+        if source.folder != "." and in_source(path, source, all_sources):
+            return source.name
+    for source in all_sources.values():
+        if source.folder == ".":
+            return source.name
+    return None

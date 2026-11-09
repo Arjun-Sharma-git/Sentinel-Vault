@@ -135,3 +135,46 @@ def test_hindi_refusals_in_the_models_own_words_are_recognised():
     assert not verify(answer, 3).no_answer
     cited = "पूर्णकालिक कर्मचारियों को 25 दिनों की छुट्टी मिलती है [S1]।"
     assert verify(cited, 3).grounded
+
+
+def _fga_client(handler):
+    import httpx
+
+    from app.authz.openfga import OpenFgaAuthz
+
+    client = OpenFgaAuthz.__new__(OpenFgaAuthz)
+    client._http = httpx.AsyncClient(base_url="http://fga.test", transport=httpx.MockTransport(handler))
+    client.store_id, client.model_id = "store", "model"
+    return client
+
+
+async def test_openfga_folder_listing_is_not_capped_at_1000():
+    """Plain ListObjects stops at 1,000; the streamed endpoint returns every folder."""
+    import json
+
+    import httpx
+
+    lines = "\n".join(json.dumps({"result": {"object": f"folder:f{i}"}}) for i in range(1500))
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(200, text=lines)
+
+    folders = await _fga_client(handler).folders_for("u1")
+    assert len(folders) == 1500 and seen == ["/stores/store/streamed-list-objects"]
+
+
+async def test_an_error_in_the_folder_stream_is_not_a_partial_answer():
+    import json
+
+    import httpx
+    import pytest
+
+    from app.authz.openfga import AuthzUnavailable
+
+    body = (
+        json.dumps({"result": {"object": "folder:a"}}) + "\n" + json.dumps({"error": {"message": "deadline"}})
+    )
+    with pytest.raises(AuthzUnavailable):
+        await _fga_client(lambda r: httpx.Response(200, text=body)).folders_for("u1")

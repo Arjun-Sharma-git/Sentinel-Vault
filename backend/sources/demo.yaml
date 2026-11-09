@@ -1,6 +1,13 @@
 # The demo company (Acme): the documents in the repo's data/library, at the library root.
 name: demo
 title: Acme demo company
+description: Policies, engineering docs, finance and HR files of the fictional Acme company.
+suggestions:
+  - How many days of paid time off do we get?
+  - What caused the payments outage in October?
+  - What was Q3 2026 revenue and gross margin?
+  - What are the 2026 salary bands for engineering?
+  - What is Project Northwind?
 folder: "."                 # its folders (general, engineering, ...) sit at the library root
 fetch:
   path: ../data/library     # relative to backend/

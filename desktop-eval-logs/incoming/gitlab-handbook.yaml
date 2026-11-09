@@ -1,0 +1,32 @@
+# The GitLab Handbook (https://handbook.gitlab.com), Markdown only.
+name: gitlab-handbook
+title: The GitLab Handbook
+folder: gitlab-handbook
+license: CC BY-SA 4.0, (c) GitLab (https://creativecommons.org/licenses/by-sa/4.0/)
+homepage: https://handbook.gitlab.com/handbook/
+fetch:
+  git:
+    url: https://gitlab.com/gitlab-com/content-sites/handbook.git
+    ref: main
+    sparse: ["/content/handbook/**/*.md", "/LICENSE*"]
+convert: hugo-markdown
+convert_options: {root: content/handbook, home: home}
+# Sections are mapped to the demo groups. The gitlab-handbook folder itself gets no grant
+# (closed_root), and every section must be covered (require_all_granted), so a section that
+# appears in a later sync is reported instead of quietly staying closed.
+grants:
+  - group: everyone
+    folders: [home, about, company, communication, tools-and-tips, it, business-technology,
+              customer-experience, enterprise-data, eta, marketing, sales, product, alliances,
+              resellers, solutions-architects, support, job-description-library, upstream-studios]
+  - {group: engineering, relation: editor, folders: [engineering, security, product-development]}
+  - {group: hr, relation: editor, folders: [people-group, people-policies, total-rewards, hiring, labor-and-employment-notices]}
+  - {group: finance, relation: editor, folders: [finance, entity]}
+  - {group: leadership, relation: editor, folders: [leadership, legal, ceo, eba, board-meetings, acquisitions]}
+  - group: leadership    # leadership reads everything
+    folders: [home, about, company, communication, tools-and-tips, it, business-technology,
+              customer-experience, enterprise-data, eta, marketing, sales, product, alliances,
+              resellers, solutions-architects, support, job-description-library, upstream-studios,
+              engineering, security, product-development, people-group, people-policies,
+              total-rewards, hiring, labor-and-employment-notices, finance, entity]
+eval: eval/sources/gitlab-handbook.yaml

@@ -1,6 +1,13 @@
 # The GitLab Handbook (https://handbook.gitlab.com), Markdown only.
 name: gitlab-handbook
 title: The GitLab Handbook
+description: How GitLab runs the company, from expenses and time off to on-call and code review.
+suggestions:
+  - What kind of paid time off policy does GitLab have?
+  - How much can I claim per day for meals while travelling?
+  - Does GitLab prefer synchronous or asynchronous communication?
+  - Can an AI agent approve a merge request?
+  - What are the time-to-remediate SLAs for vulnerabilities?
 folder: gitlab-handbook
 license: CC BY-SA 4.0, (c) GitLab (https://creativecommons.org/licenses/by-sa/4.0/)
 homepage: https://handbook.gitlab.com/handbook/

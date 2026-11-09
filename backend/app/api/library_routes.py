@@ -13,6 +13,7 @@ from .. import audit
 from ..ingest.library import delete_document, enqueue_index, safe_join, sha256_file
 from ..ingest.parse import SUPPORTED_TYPES, mime_type_for, signature_ok
 from ..models import Chunk, Document, Folder
+from ..sources import load_sources, source_of
 from .deps import CurrentUser, Db, Svc, require_csrf_header
 from .schemas import DocumentOut
 
@@ -38,8 +39,10 @@ async def my_folders(user: CurrentUser, db: Db, services: Svc) -> list[dict[str,
         ).all()
     )
     folders = (await db.scalars(select(Folder).where(Folder.id.in_(viewable)).order_by(Folder.path))).all()
+    sources = load_sources()
     return [
         {
+            "source": source_of(f.path, sources),
             "id": f.id,
             "path": f.path,
             "name": f.name,
@@ -50,6 +53,44 @@ async def my_folders(user: CurrentUser, db: Db, services: Svc) -> list[dict[str,
         }
         for f in folders
     ]
+
+
+@router.get("/sources")
+async def my_sources(user: CurrentUser, db: Db, services: Svc) -> list[dict[str, Any]]:
+    """Knowledge sources the user can read something in, for choosing what to search."""
+    viewable = await services.authz.folders_for(user.id, "viewer")
+    if not viewable:
+        return []
+    sources = load_sources()
+    folders = (await db.scalars(select(Folder).where(Folder.id.in_(viewable)))).all()
+    counts = dict(
+        (
+            await db.execute(
+                select(Document.folder_id, func.count())
+                .where(Document.folder_id.in_(viewable), Document.status == "indexed")
+                .group_by(Document.folder_id)
+            )
+        ).all()
+    )
+    out = []
+    for source in sources.values():
+        mine = [f for f in folders if source_of(f.path, sources) == source.name]
+        if not mine:
+            continue
+        out.append(
+            {
+                "name": source.name,
+                "title": source.title,
+                "description": source.description,
+                "homepage": source.homepage,
+                "license": source.license,
+                "folder": source.folder,
+                "folders": len(mine),
+                "documents": sum(counts.get(f.id, 0) for f in mine),
+                "suggestions": source.suggestions,
+            }
+        )
+    return out
 
 
 @router.get("/folders/{folder_id}/documents")

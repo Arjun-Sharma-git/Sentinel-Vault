@@ -7,6 +7,7 @@ import type { AskEvent, Citation, StepEvent, StepId } from './types'
 
 export type Turn = {
   question: string
+  sources?: string[] // the knowledge sources searched; undefined means all
   requestId?: string
   steps: Partial<Record<StepId, StepEvent>>
   text: string // streamed answer text; replaced by the verified text at the end
@@ -49,14 +50,14 @@ export function useAsk() {
   const current = turns.at(-1)
   const running = !!current && !current.done && !current.error
 
-  async function submit(question: string) {
+  async function submit(question: string, sources?: string[]) {
     if (!question || running) return
     const controller = new AbortController()
     abort.current = controller
-    setTurns((all) => [...all, { question, steps: {}, text: '' }])
+    setTurns((all) => [...all, { question, sources, steps: {}, text: '' }])
     const update = (fn: (t: Turn) => Turn) => setTurns((all) => [...all.slice(0, -1), fn(all[all.length - 1])])
     try {
-      await ask(question, (event) => update((t) => apply(t, event)), controller.signal)
+      await ask(question, (event) => update((t) => apply(t, event)), controller.signal, sources)
       queryClient.invalidateQueries({ queryKey: ['audit'] })
     } catch (err) {
       if ((err as Error).name === 'AbortError') update((t) => ({ ...t, error: 'Stopped.' }))

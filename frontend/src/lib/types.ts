@@ -23,8 +23,21 @@ export type Folder = {
   documents: number
 }
 
-/** A folder as the signed-in user sees it. */
-export type MyFolder = Folder & { can_upload: boolean }
+/** A folder as the signed-in user sees it, with the knowledge source it belongs to. */
+export type MyFolder = Folder & { can_upload: boolean; source: string | null }
+
+/** A knowledge source the signed-in user can read something in (GET /api/sources). */
+export type SourceInfo = {
+  name: string
+  title: string
+  description: string
+  homepage: string | null
+  license: string | null
+  folder: string
+  folders: number
+  documents: number
+  suggestions: string[]
+}
 
 export type Relation = 'viewer' | 'editor'
 

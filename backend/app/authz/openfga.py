@@ -78,17 +78,34 @@ class OpenFgaAuthz:
 
     # ---- Queries ----------------------------------------------------------------------
     async def folders_for(self, user_id: str, relation: Relation = "viewer") -> set[str]:
-        out = await self._post(
-            f"/stores/{self.store_id}/list-objects",
-            {
-                "authorization_model_id": self.model_id,
-                "type": "folder",
-                "relation": relation,
-                "user": f"user:{user_id}",
-                "consistency": CONSISTENCY,
-            },
-        )
-        return {obj.removeprefix("folder:") for obj in out.get("objects", [])}
+        """Every folder the user has `relation` on. Uses StreamedListObjects: plain ListObjects
+        stops at 1,000 results (OpenFGA's default), which silently cut a leadership user's
+        search to 1,000 of the GitLab handbook's 1,500 folders."""
+        body = {
+            "authorization_model_id": self.model_id,
+            "type": "folder",
+            "relation": relation,
+            "user": f"user:{user_id}",
+            "consistency": CONSISTENCY,
+        }
+        objects: set[str] = set()
+        try:
+            async with self._http.stream(
+                "POST", f"/stores/{self.store_id}/streamed-list-objects", json=body
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    item = json.loads(line)
+                    if "error" in item:
+                        raise AuthzUnavailable(f"OpenFGA streamed-list-objects: {item['error']}")
+                    obj = item.get("result", {}).get("object", "")
+                    if obj.startswith("folder:"):
+                        objects.add(obj.removeprefix("folder:"))
+        except httpx.HTTPError as exc:
+            raise AuthzUnavailable(f"OpenFGA unreachable: {exc}") from exc
+        return objects
 
     async def check_folders(
         self, user_id: str, folder_ids: set[str], relation: Relation = "viewer"

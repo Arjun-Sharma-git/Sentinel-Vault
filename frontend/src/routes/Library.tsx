@@ -3,9 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileText, Folder, LoaderCircle, Trash2, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { FolderTree } from '../components/FolderTree'
 import { PageHeader } from '../components/Layout'
-import { Badge, Button, Card, Empty, Eyebrow, cn } from '../components/ui'
+import { Badge, Button, Card, Empty, Eyebrow } from '../components/ui'
 import { api, type DocumentRow, type MyFolder } from '../lib/api'
+import { useSources } from '../lib/sources'
 
 const ACCEPT = '.md,.markdown,.txt,.csv,.json,.pdf,.docx,.pptx,.xlsx,.html,.htm'
 const STATUS_TONE = { indexed: 'sage', pending: 'gold', indexing: 'gold', failed: 'brick' } as const
@@ -16,6 +18,7 @@ function formatBytes(n: number) {
 
 export function LibraryPage() {
   const folders = useQuery({ queryKey: ['folders'], queryFn: api.folders })
+  const sources = useSources()
   const [selected, setSelected] = useState<string | null>(null)
   const [openDoc, setOpenDoc] = useState<string | null>(null)
   const folder = folders.data?.find((f) => f.id === selected) ?? folders.data?.[0]
@@ -26,7 +29,7 @@ export function LibraryPage() {
         eyebrow="Library"
         title="Folders you"
         accent="can read."
-        subtitle="Each folder belongs to a department. You see the ones an admin has granted to you or your groups; access to a folder includes its subfolders."
+        subtitle="Folders are grouped by knowledge source. You see the ones an admin has granted to you or your groups; access to a folder includes its subfolders."
       />
       {folders.data?.length === 0 ? (
         <Card>
@@ -36,25 +39,16 @@ export function LibraryPage() {
         </Card>
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
-          <Card className="p-2">
-            {folders.data?.map((f) => (
-              <button
-                key={f.id}
-                onClick={() => {
-                  setSelected(f.id)
-                  setOpenDoc(null)
-                }}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-2xl px-3 py-2.5 text-left text-sm transition-colors',
-                  f.id === folder?.id ? 'bg-ink text-paper' : 'hover:bg-cream',
-                )}
-                style={{ paddingLeft: `${0.75 + f.path.split('/').length * 0.6 - 0.6}rem` }}
-              >
-                <Folder className="size-4 shrink-0 opacity-70" />
-                <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                <span className="font-mono text-[11px] opacity-60">{f.documents}</span>
-              </button>
-            ))}
+          <Card className="p-2 lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
+            <FolderTree
+              folders={folders.data ?? []}
+              sources={sources.data}
+              selected={folder?.id}
+              onSelect={(id) => {
+                setSelected(id)
+                setOpenDoc(null)
+              }}
+            />
           </Card>
           {folder && <FolderView folder={folder} openDoc={openDoc} setOpenDoc={setOpenDoc} />}
         </div>

@@ -1,0 +1,1 @@
+torch 2.15.0+rocm7.14 hip 7.14.60850 gpu AMD Radeon RX 9070 XT

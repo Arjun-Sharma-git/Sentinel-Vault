@@ -2,7 +2,8 @@
 
 import { Ban, FileText, SearchX, ShieldAlert } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
-import type { Citation } from '../lib/types'
+import { sourceFor } from '../lib/sources'
+import type { Citation, SourceInfo } from '../lib/types'
 import type { Turn } from '../lib/useAsk'
 import { Badge, Card, Eyebrow, cn } from './ui'
 
@@ -47,7 +48,7 @@ function Body({ text, cited }: { text: string; cited: Set<number> | null }) {
   )
 }
 
-function Sources({ citations }: { citations: Citation[] }) {
+function Sources({ citations, sources }: { citations: Citation[]; sources?: SourceInfo[] }) {
   return (
     <div className="mt-5 border-t border-line pt-4">
       <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">Sources</p>
@@ -61,7 +62,8 @@ function Sources({ citations }: { citations: Citation[] }) {
               <FileText className="size-3.5 text-gold" />
               <span className="font-medium">{c.title}</span>
               {c.heading && <span className="text-muted">› {c.heading.split(' › ').at(-1)}</span>}
-              <Badge>{c.folder}</Badge>
+              {(sources?.length ?? 0) > 1 && <Badge tone="gold">{sourceFor(c.path, sources)?.title ?? c.folder}</Badge>}
+              <Badge>{c.folder.split('/').at(-1)}</Badge>
             </div>
             <p className="ml-7 mt-1 line-clamp-2 text-xs leading-relaxed text-muted">{c.snippet}</p>
           </li>
@@ -71,14 +73,20 @@ function Sources({ citations }: { citations: Citation[] }) {
   )
 }
 
-export function AnswerCard({ turn }: { turn: Turn }) {
+export function AnswerCard({ turn, sources }: { turn: Turn; sources?: SourceInfo[] }) {
+  const searched = turn.sources?.length
+    ? (sources ?? []).filter((s) => turn.sources?.includes(s.name)).map((s) => s.title)
+    : []
   const final = turn.final
   const cited = final ? new Set(final.citations.map((c) => c.n)) : null
 
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-ink px-5 py-3 text-[15px] text-paper">{turn.question}</div>
+        <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-ink px-5 py-3 text-[15px] text-paper">
+          {turn.question}
+          {searched.length > 0 && <span className="mt-1 block text-[11px] text-paper/55">in {searched.join(', ')}</span>}
+        </div>
       </div>
 
       {turn.error ? (
@@ -109,7 +117,9 @@ export function AnswerCard({ turn }: { turn: Turn }) {
             <div>
               <p className="font-medium">{turn.text}</p>
               <p className="mt-1 text-sm text-muted">
-                Only folders you have access to were searched. If the answer lives elsewhere, ask an admin for access.
+                {searched.length
+                  ? `Only ${searched.join(' and ')} was searched, and only the folders you have access to. Try “All sources”, or ask an admin if the answer lives in a folder you can't read.`
+                  : 'Only folders you have access to were searched. If the answer lives elsewhere, ask an admin for access.'}
               </p>
             </div>
           </div>
@@ -129,7 +139,7 @@ export function AnswerCard({ turn }: { turn: Turn }) {
               <ShieldAlert className="size-4" /> This answer doesn't cite a source. Check the documents before relying on it.
             </p>
           )}
-          {final && final.citations.length > 0 && <Sources citations={final.citations} />}
+          {final && final.citations.length > 0 && <Sources citations={final.citations} sources={sources} />}
         </Card>
       )}
     </div>

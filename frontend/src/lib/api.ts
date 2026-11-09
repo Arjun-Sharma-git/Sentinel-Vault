@@ -16,6 +16,7 @@ import type {
   Health,
   Me,
   MyFolder,
+  SourceInfo,
   Relation,
   UserRow,
 } from './types'
@@ -71,6 +72,7 @@ export const api = {
 
   // library
   folders: () => request<MyFolder[]>('/api/folders'),
+  sources: () => request<SourceInfo[]>('/api/sources'),
   folderDocuments: (folderId: string) => request<DocumentRow[]>(`/api/folders/${folderId}/documents`),
   document: (id: string) => request<DocumentDetail>(`/api/documents/${id}`),
   upload: (folderId: string, file: File) => {
@@ -105,13 +107,19 @@ export const api = {
   },
 }
 
-/** POST /api/ask and call `onEvent` for each streamed event. */
-export async function ask(question: string, onEvent: (event: AskEvent) => void, signal?: AbortSignal) {
+/** POST /api/ask and call `onEvent` for each streamed event. `sources` limits the search to
+ * those knowledge sources; omitted, everything the user can read is searched. */
+export async function ask(
+  question: string,
+  onEvent: (event: AskEvent) => void,
+  signal?: AbortSignal,
+  sources?: string[],
+) {
   const res = await fetch('/api/ask', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { ...BASE_HEADERS, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify(sources?.length ? { question, sources } : { question }),
     signal,
   })
   if (!res.ok || !res.body) {
