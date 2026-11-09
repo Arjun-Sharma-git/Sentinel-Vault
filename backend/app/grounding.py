@@ -15,6 +15,7 @@ faithfulness = supported claims / claims (the RAGAS definition), also reported b
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass, field
 
@@ -69,6 +70,7 @@ class Grounding:
     claims: list[Claim] = field(default_factory=list)
     checked: bool = False  # False when the judge couldn't run
     error: str | None = None
+    judge: str | None = None  # "llm", "minicheck" or "minicheck+llm"
 
     @property
     def unsupported(self) -> list[Claim]:
@@ -153,15 +155,52 @@ def mark_diagrams(text: str, grounding: Grounding) -> str:
     return _FENCE.sub(add, text)
 
 
-async def check(llm, text: str, passages: list[Passage]) -> Grounding:
-    """Judge every claim; on any judge failure, return unchecked rather than block the answer."""
+_NON_LATIN = re.compile(r"[\u0900-\u0DFF\u0600-\u06FF\u0400-\u04FF\u3040-\u9FFF]")
+
+
+def minicheck_prompt(claim: Claim, passages: list[Passage]) -> str:
+    """Bespoke-MiniCheck's own input format: the grounding document, then one claim.
+
+    Each passage keeps its title and section heading ("Incentives at GitLab › Manager
+    Process"): passages often say "you", and the heading is what says who "you" is. A diagram
+    box is a label, not a sentence, so it is phrased as the claim it makes about the process.
+    """
+    cited = [passages[n - 1] for n in claim.sources]
+    document = "\n\n".join(f"{p.document_title} › {p.heading}\n{p.text[:MAX_PASSAGE_CHARS]}" for p in cited)
+    statement = claim.text
+    if claim.kind == "node":
+        label = claim.text.rstrip("?").strip()
+        statement = (
+            f"The process includes a decision: {label}?"
+            if claim.text.endswith("?")
+            else f"The process includes this step: {label}."
+        )
+    return f"Document: {document}\nClaim: {statement}"
+
+
+async def check(llm, text: str, passages: list[Passage], minicheck=None) -> Grounding:  # noqa: ANN001
+    """Judge every claim; on any judge failure, return unchecked rather than block the answer.
+
+    With `minicheck` (an Ollama model trained only to say whether a document supports a claim),
+    it judges claims in Latin script one at a time, independently of the model that wrote the
+    answer. It is English-trained, so claims in other scripts (Hindi) still go to `llm`.
+    """
     claims = extract_claims(text, len(passages))
     to_judge = [c for c in claims if c.supported is None]
-    if not to_judge or llm is None:
+    if not to_judge or (llm is None and minicheck is None):
         return Grounding(claims, checked=bool(claims) and not to_judge)
+    by_minicheck = [c for c in to_judge if minicheck is not None and not _NON_LATIN.search(c.text)]
+    by_llm = [c for c in to_judge if c not in by_minicheck]
     try:
-        reply = await llm.complete_json(judge_messages(to_judge, passages), SCHEMA)
+        if by_minicheck:
+            answers = await asyncio.gather(
+                *(minicheck.yes_no(minicheck_prompt(c, passages)) for c in by_minicheck)
+            )
+            for claim, supported in zip(by_minicheck, answers, strict=True):
+                claim.supported = supported
+        if by_llm and llm is not None:
+            apply_verdicts(by_llm, await llm.complete_json(judge_messages(by_llm, passages), SCHEMA))
     except (LlmError, ValueError) as exc:
         return Grounding(claims, checked=False, error=str(exc)[:200])
-    apply_verdicts(to_judge, reply)
-    return Grounding(claims, checked=True)
+    judge = "minicheck" if by_minicheck and not by_llm else "llm" if not by_minicheck else "minicheck+llm"
+    return Grounding(claims, checked=True, judge=judge)

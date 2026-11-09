@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # Judge each cited sentence and diagram box against its sources with the answer model
     # (one extra JSON call per answer, see app/grounding.py). Off: citations are only range-checked.
     grounding_check: bool = True
+    # Who judges claims: "llm" (the answer model, one JSON call) or "minicheck"
+    # (Bespoke-MiniCheck 7B in Ollama, one Yes/No call per claim; non-commercial licence;
+    # English-trained, so Hindi claims still go to the answer model).
+    claim_judge: Literal["llm", "minicheck"] = "llm"
+    minicheck_model: str = "bespoke-minicheck"
     # Questions one user may have running at once (each holds the GPU); more get a 429.
     max_concurrent_asks: int = 1
 

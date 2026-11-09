@@ -108,3 +108,42 @@ def test_judge_sees_sources_as_marked_data_with_the_answer_models_limit():
 def test_judge_is_told_to_judge_meaning_across_languages():
     system, _ = grounding.judge_messages(grounding.extract_claims("Alpha holds [S1].", 1), _passages(1))
     assert "different language" in system["content"]
+
+
+class _MiniCheck:
+    def __init__(self, supported_words: set[str]):
+        self.supported_words, self.prompts = supported_words, []
+
+    async def yes_no(self, prompt: str) -> bool:
+        self.prompts.append(prompt)
+        claim = prompt.split("\nClaim: ", 1)[1]
+        return any(word in claim for word in self.supported_words)
+
+
+async def test_minicheck_judges_english_and_the_answer_model_judges_hindi():
+    minicheck = _MiniCheck({"Alpha"})
+    llm = _Judge({"verdicts": [{"id": 3, "supported": True}]})
+    text = "Alpha holds the key [S1]. Beta holds the key [S2]. अल्फा के पास चाबी है [S1]।"
+    result = await grounding.check(llm, text, _passages(), minicheck)
+    assert [c.supported for c in result.claims] == [True, False, True]
+    assert result.judge == "minicheck+llm"
+    assert len(minicheck.prompts) == 2 and minicheck.prompts[0].startswith(
+        "Document: T › H\npassage 1\nClaim: "
+    )
+    assert "अल्फा" in llm.calls[0][1]["content"] and "Beta" not in llm.calls[0][1]["content"]
+
+
+async def test_minicheck_sees_only_the_passages_a_claim_cites():
+    minicheck = _MiniCheck({"x"})
+    await grounding.check(None, "Alpha and gamma hold it [S1][S3].", _passages(), minicheck)
+    assert "passage 1" in minicheck.prompts[0] and "passage 3" in minicheck.prompts[0]
+    assert "passage 2" not in minicheck.prompts[0]
+
+
+def test_minicheck_gets_headings_and_boxes_phrased_as_claims():
+    claims = grounding.extract_claims(
+        '```mermaid\nflowchart TD\n  A["Approve? (S1)"] --> B["Pay out (S1)"]\n```', 1
+    )
+    first, second = (grounding.minicheck_prompt(c, _passages(1)) for c in claims)
+    assert first == "Document: T › H\npassage 1\nClaim: The process includes a decision: Approve?"
+    assert second.endswith("Claim: The process includes this step: Pay out.")

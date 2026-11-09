@@ -217,7 +217,7 @@ async def answer_question(
         claims_checked = None
         if services.settings.grounding_check and provider != "extractive":
             yield step("verify", "running", "Checking each claim against its sources…")
-            claims_checked = await grounding.check(services.llm, text, passages)
+            claims_checked = await grounding.check(services.llm, text, passages, services.fact_checker)
             text = grounding.mark_diagrams(text, claims_checked)
         unsupported = claims_checked.unsupported if claims_checked else []
         status = "pass" if verified.grounded and not verified.dropped and not unsupported else "warn"
@@ -228,7 +228,9 @@ async def answer_question(
         )
         if claims_checked and claims_checked.checked:
             judged = [c for c in claims_checked.claims if c.supported is not None]
-            summary += f" · {len(judged) - len(unsupported)}/{len(judged)} claims supported"
+            summary += (
+                f" · {len(judged) - len(unsupported)}/{len(judged)} claims supported ({claims_checked.judge})"
+            )
         elif claims_checked and claims_checked.error:
             summary += " · claim check unavailable"
         yield step(
@@ -243,6 +245,7 @@ async def answer_question(
                     for c in (claims_checked.claims if claims_checked else [])
                 ],
                 "faithfulness": claims_checked.faithfulness if claims_checked else None,
+                "judge": claims_checked.judge if claims_checked else None,
                 "error": claims_checked.error if claims_checked else None,
             },
             _ms(t),

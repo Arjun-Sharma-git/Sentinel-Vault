@@ -189,6 +189,26 @@ class OllamaChat:
             raise LlmError(f"Ollama returned {response.status_code}: {response.text[:300]}")
         return json.loads(response.json()["message"]["content"])
 
+    async def yes_no(self, prompt: str) -> bool:
+        """A one-word Yes/No reply to a raw prompt (for classifier-style models like MiniCheck)."""
+        body = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": self.keep_alive,
+            "options": {"temperature": 0, "num_predict": 2, "num_ctx": self.context_tokens},
+        }
+        try:
+            response = await self._http.post("/api/generate", json=body)
+        except httpx.HTTPError as exc:
+            raise LlmError(f"Ollama unreachable at {self._http.base_url}: {exc}") from exc
+        if response.status_code != 200:
+            raise LlmError(f"Ollama returned {response.status_code}: {response.text[:300]}")
+        word = response.json().get("response", "").strip().lower()
+        if not word.startswith(("yes", "no")):
+            raise ValueError(f"expected Yes or No, got {word[:40]!r}")
+        return word.startswith("yes")
+
     async def available(self) -> bool:
         try:
             response = await self._http.get("/api/tags", timeout=3.0)

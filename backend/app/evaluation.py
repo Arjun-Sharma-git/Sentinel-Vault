@@ -170,17 +170,35 @@ async def _answer(services: Services, q: Question, passages: list[Passage]) -> d
     verified = verify(raw, len(passages))
     refused = verified.no_answer or not verified.cited
     cited = {passages[n - 1].rel_path for n in verified.cited}
-    faithfulness = None
+    faithfulness = faithfulness_llm = agreement = None
     if not refused and services.llm is not None and services.settings.grounding_check:
-        faithfulness = (await grounding.check(services.llm, verified.text, passages)).faithfulness
+        judged = await grounding.check(services.llm, verified.text, passages, services.fact_checker)
+        faithfulness = judged.faithfulness
+        if services.fact_checker is not None:
+            # Same answer, answer-model judge: to compare the two judges claim by claim.
+            baseline = await grounding.check(services.llm, verified.text, passages)
+            faithfulness_llm = baseline.faithfulness
+            pairs = [
+                (a.supported, b.supported)
+                for a, b in zip(judged.claims, baseline.claims, strict=True)
+                if a.supported is not None and b.supported is not None
+            ]
+            agreement = round(sum(a == b for a, b in pairs) / len(pairs), 3) if pairs else None
     return {
         "faithfulness": faithfulness,
+        "faithfulness_llm": faithfulness_llm,
+        "judge_agreement": agreement,
         "refused": refused,
         "missing": [] if refused else facts_present(verified.text, q.facts),
         "cited_expected": bool(cited & set(q.expect)),
         "answer": verified.text[:400],
         "answer_ms": round((time.perf_counter() - started) * 1000, 1),
     }
+
+
+def _mean(rows: list[dict[str, Any]], key: str) -> float | None:
+    values = [r[key] for r in rows if r.get(key) is not None]
+    return round(statistics.mean(values), 3) if values else None
 
 
 def summarize(rows: list[dict[str, Any]], top_k: int, answers: bool) -> dict[str, Any]:
@@ -216,12 +234,13 @@ def summarize(rows: list[dict[str, Any]], top_k: int, answers: bool) -> dict[str
                     sum(1 for r in unanswerable if r["refused"]) / (len(unanswerable) or 1), 3
                 ),
                 # RAGAS faithfulness: share of an answer's claims its cited sources support, averaged
-                "faithfulness": round(statistics.mean(scored), 3)
-                if (scored := [r["faithfulness"] for r in rows if r.get("faithfulness") is not None])
-                else None,
+                "faithfulness": _mean(rows, "faithfulness"),
                 "answer_ms_mean": round(statistics.mean(r["answer_ms"] for r in rows), 1),
             }
         )
+        if any(r.get("faithfulness_llm") is not None for r in rows):  # MiniCheck run: compare judges
+            summary["faithfulness_llm_judge"] = _mean(rows, "faithfulness_llm")
+            summary["judge_agreement"] = _mean(rows, "judge_agreement")
     return summary
 
 

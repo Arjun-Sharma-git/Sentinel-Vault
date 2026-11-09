@@ -35,6 +35,7 @@ class Services:
     llm: OllamaChat | None
     retriever: Retriever
     indexer: Indexer
+    fact_checker: OllamaChat | None = None  # MiniCheck, when CLAIM_JUDGE=minicheck
 
     async def close(self) -> None:
         await self.gate.close()
@@ -42,6 +43,8 @@ class Services:
         await self.embedder.close()
         if self.llm:
             await self.llm.close()
+        if self.fact_checker:
+            await self.fact_checker.close()
         close = getattr(self.authz, "close", None)
         if close:
             await close()
@@ -107,6 +110,23 @@ async def build_services(
         if settings.llm_backend == "ollama"
         else None
     )
+    fact_checker = None
+    if settings.grounding_check and settings.claim_judge == "minicheck":
+        fact_checker = OllamaChat(
+            settings.ollama_url,
+            settings.minicheck_model,
+            settings.llm_timeout_seconds,
+            8192,
+            settings.llm_keep_alive,
+        )
+        if not await fact_checker.available():
+            logger.warning(
+                "Claim judge %s is not in Ollama; the answer model judges claims. Pull: ollama pull %s",
+                settings.minicheck_model,
+                settings.minicheck_model,
+            )
+            await fact_checker.close()
+            fact_checker = None
     if llm and not await llm.available():
         logger.warning(
             "Answer model %s is not in Ollama; answers fall back to quoting sources. "
@@ -130,4 +150,4 @@ async def build_services(
         ParseLimits.from_settings(settings), device.torch_device, settings.parse_network_isolation
     )
     indexer = Indexer(embedder, vectors, settings.library_dir, settings.chunk_max_tokens, parser)
-    return Services(settings, sessions, authz, vectors, embedder, gate, llm, retriever, indexer)
+    return Services(settings, sessions, authz, vectors, embedder, gate, llm, retriever, indexer, fact_checker)

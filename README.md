@@ -372,6 +372,21 @@ model with a strict JSON schema (Ollama structured outputs). Nothing new is inst
   shown and the step says the check was unavailable.
 - Sources reach the judge datamarked and cut to the same length the answer model saw.
 - `GROUNDING_CHECK=false` turns it off. Cost: about 1.5 to 2 s per answer on the RX 9070 XT.
+- `CLAIM_JUDGE=minicheck` judges English claims with
+  [Bespoke-MiniCheck 7B](https://ollama.com/library/bespoke-minicheck) (`ollama pull
+  bespoke-minicheck`), a model trained only to say whether a document supports a claim, and
+  independent of the model that wrote the answer. **Its licence is non-commercial.** It gets
+  each passage's title and heading (passages say "you"; the heading says who that is), and
+  diagram boxes are phrased as claims ("The process includes this step: …"). Hindi claims stay
+  with the answer model, since MiniCheck is English-trained. The default is `llm`.
+
+| judge (same 33 answers, GitLab handbook) | faithfulness |
+|---|---|
+| answer model (Qwen 3.5 9B) | 0.911 |
+| Bespoke-MiniCheck 7B | 0.960 |
+
+The two agree on 95.2% of claims. Where they differ, MiniCheck accepts claims the answer model
+rejects (5 of 33 answers); which judge is right there hasn't been checked by hand yet.
 
 Faithfulness in the eval is the RAGAS definition: supported claims / claims, averaged over
 answered questions. GitLab handbook, Qwen reranker, 39 questions: **0.909** (correct 84.8%).
