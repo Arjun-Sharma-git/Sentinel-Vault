@@ -257,8 +257,12 @@ The reranker fixes the order, not recall: the right document was already in the 
 time. Order still matters, because a small model leans on its first sources. MiniLM is the laptop
 default. Qwen is the desktop default, where it runs on the GPU.
 
-Answer scores (`--answers`: facts present, correct document cited, correct refusals) still need a
-run on the desktop. On the 16 GB laptop, the run alongside the API ran out of memory.
+Answers on the desktop (Ryzen 7 9800X3D, RX 9070 XT with ROCm, `qwen3.5:9b`, top 8 passages, 53 questions; `--answers` scores facts present, correct document cited and correct refusals):
+
+| Reranker | hit@1 | hit@3 | hit@8 | mrr | rerank_ms_mean | rerank_ms_p95 | retrieve_ms_mean | correct | false_refusals | correct_refusals | answer_ms_mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| none (RRF only) | 0.915 | 1.0 | 1.0 | 0.957 | 0.0 | 0.0 | 33.4 | 1.0 | 0.0 | 1.0 | 860.6 |
+| qwen:Qwen3-Reranker-0.6B | 0.957 | 1.0 | 1.0 | 0.975 | 111.3 | 76.7 | 145.5 | 1.0 | 0.0 | 1.0 | 668.1 |
 
 ## Security notes
 
